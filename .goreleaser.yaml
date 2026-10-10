@@ -1,0 +1,47 @@
+version: 2
+project_name: cairn
+
+builds:
+  - env: [CGO_ENABLED=0]
+    goos: [linux] # systemd user timers + flock: Linux only
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags: ["-s -w -X main.version={{ .Version }}"]
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}" # stable names: releases/latest/download/... works
+    files: [README.md, LICENSE]
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  use: git
+  sort: asc
+  groups:
+    - title: Breaking changes
+      regexp: '^.*?\w+(\(.+\))?!:.+$'
+      order: 0
+    - title: Features
+      regexp: '^.*?feat(\(.+\))?:.+$'
+      order: 1
+    - title: Fixes
+      regexp: '^.*?fix(\(.+\))?:.+$'
+      order: 2
+    - title: Other
+      order: 999
+  filters:
+    exclude: ['^docs', '^test', '^ci', '^chore', '^style']
+
+release:
+  github:
+    owner: stefanbringuier
+    name: cairn
+  footer: |
+    **Install** (Linux amd64; use `arm64` for ARM):
+    ```sh
+    curl -fsSL https://github.com/stefanbringuier/cairn/releases/download/{{ .Tag }}/cairn_linux_amd64.tar.gz | tar -xz -C ~/.local/bin cairn
+    ```
+    Verify with `sha256sum -c checksums.txt` (and `gh attestation verify cairn_linux_amd64.tar.gz -R stefanbringuier/cairn` once the repo is public).

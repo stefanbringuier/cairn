@@ -1,0 +1,82 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 6 * * 1" # weekly: catch new advisories in dependencies (we don't take Dependabot PRs)
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: gofmt
+        run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+      - run: go vet ./...
+      - run: go test -race ./...
+      - name: pinned restic download still matches its hash
+        run: CAIRN_NET_TEST=1 go test -run TestFetchRestic ./...
+      - run: go build -trimpath ./...
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+        with:
+          version: v2.14.0
+      - name: govulncheck
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
+      - uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
+        with:
+          version: v2.18.3
+          args: check
+
+  commits:
+    # House rules: every commit is Stefan's, conventional (drives semver), and carries no AI attribution.
+    runs-on: ubuntu-latest
+    if: github.event_name != 'schedule'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: check commits
+        env:
+          RANGE: ${{ github.event_name == 'pull_request' && format('{0}..{1}', github.event.pull_request.base.sha, github.event.pull_request.head.sha) || (github.event.before != '0000000000000000000000000000000000000000' && format('{0}..{1}', github.event.before, github.sha) || github.sha) }}
+          NAME: Stefan Bringuier
+          EMAIL: stefanbringuier@gmail.com
+        run: |
+          fail=0
+          for c in $(git rev-list "$RANGE"); do
+            who="$(git log -1 --format='%an <%ae>|%cn <%ce>' "$c")"
+            if [ "$who" != "$NAME <$EMAIL>|$NAME <$EMAIL>" ]; then
+              echo "::error::$c author/committer is '$who', must be '$NAME <$EMAIL>'"; fail=1
+            fi
+            if ! git log -1 --format=%s "$c" | grep -Eq '^(feat|fix|perf|refactor|docs|test|build|ci|chore|style|revert)(\([a-z0-9-]+\))?!?: .+'; then
+              echo "::error::$c subject isn't a conventional commit: $(git log -1 --format=%s "$c")"; fail=1
+            fi
+            if git log -1 --format=%B "$c" | grep -Eiq 'co-authored-by|claude|generated with'; then
+              echo "::error::$c message carries an attribution trailer or AI mention"; fail=1
+            fi
+          done
+          exit $fail
