@@ -115,6 +115,13 @@ A timer run against an offline target exits 0 and says so.
 
 ## Supported builds
 
+`scripts/install.sh` installs the latest Linux amd64 or arm64 release into
+`~/.local/bin` without sudo, after verifying the archive against the release's
+SHA-256 checksum. `CAIRN_VERSION=vX.Y.Z` selects a release and
+`CAIRN_INSTALL_DIR` selects the destination. Unsupported platforms and checksum
+failures exit without installing a binary. Installation does not initialize
+a repository or change backup configuration.
+
 Releases provide statically linked Linux amd64 and arm64 binaries. Automatic
 dependency downloads cover those architectures. systemd user timers are needed
 for automatic scheduling. If scheduling setup fails, init saves the config,

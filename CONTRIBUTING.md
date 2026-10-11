@@ -13,7 +13,7 @@ Tools live in the ignored `.cache/bin/` directory. `make setup` needs curl and t
 
 ## Design belongs in the PR
 
-Read [docs/SPEC.md](docs/SPEC.md), [docs/design.md](docs/design.md), and the root
+Read [docs/spec.md](docs/spec.md), [docs/design.md](docs/design.md), and the root
 [AGENTS.md](AGENTS.md) before extending cairn. Every PR includes the relevant
 `docs/` update. Behavior and architecture changes update the specification and
 design notes in the same PR, so reviewers can assess the intended behavior

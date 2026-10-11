@@ -23,20 +23,31 @@ A small Linux backup tool with a sharp terminal UI. Powered by [restic](https://
 
 ## Get started
 
-```sh
-mkdir -p ~/.local/bin
-curl -fsSL https://github.com/stefanbringuier/cairn/releases/latest/download/cairn_linux_amd64.tar.gz \
-  | tar -xz -C ~/.local/bin cairn
+**1. Install cairn.** Linux amd64 or arm64, detected automatically.
 
+```sh
+curl -fsSL https://raw.githubusercontent.com/stefanbringuier/cairn/main/scripts/install.sh | sh
+```
+
+**2. Choose your backup destination.** Mount your disk or share, then:
+
+```sh
+export PATH="$HOME/.local/bin:$PATH"
 cairn init /mnt/backup/cairn
 cairn
 ```
 
-Use `cairn_linux_arm64.tar.gz` on ARM. With Go installed:
+The installer verifies the release checksum and installs to `~/.local/bin`.
+No sudo needed. [Installation options](docs/usage.md#install).
+
+<details>
+<summary>Prefer Go?</summary>
 
 ```sh
 go install github.com/stefanbringuier/cairn/cmd/cairn@latest
 ```
+
+</details>
 
 **Linux amd64 + arm64.** Missing restic or rclone? cairn downloads pinned, checksum-verified copies. Systemd user timers automate runs; manual commands work without them.
 

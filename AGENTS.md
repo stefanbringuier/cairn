@@ -7,7 +7,7 @@ user timers schedule runs. Use those tools instead of building replacements.
 
 ## Read before changing behavior
 
-- [docs/SPEC.md](docs/SPEC.md) defines the command and storage contract.
+- [docs/spec.md](docs/spec.md) defines the command and storage contract.
 - [docs/design.md](docs/design.md) explains architecture and extension points.
 - [docs/usage.md](docs/usage.md) explains the product to users.
 - [CONTRIBUTING.md](CONTRIBUTING.md) defines the PR and validation workflow.

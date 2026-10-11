@@ -58,9 +58,14 @@ After that approval:
 1. Review the specification, examples, screenshots, and independent-development
    footer for material intended to be public.
 2. Make the repository public in GitHub settings.
-3. In **Settings → Pages**, choose **GitHub Actions** as the source.
-4. Add the repository Actions variable **`PAGES_ENABLED` = `true`**.
-5. Run the **pages** workflow manually, or push a docs change to `main`.
+3. Enable **Settings → Advanced Security → Private vulnerability reporting**.
+   GitHub offers this feature for public repositories; the private-report form
+   is unavailable while the repository is private. See the
+   [GitHub setup guide](https://docs.github.com/en/code-security/how-tos/report-and-fix-vulnerabilities/configure-vulnerability-reporting/configure-for-a-repository).
+   [SECURITY.md](../SECURITY.md) keeps email as a working fallback.
+4. In **Settings → Pages**, choose **GitHub Actions** as the source.
+5. Add the repository Actions variable **`PAGES_ENABLED` = `true`**.
+6. Run the **pages** workflow manually, or push a docs change to `main`.
 
 The deployment environment is `github-pages`. Require maintainer approval there
 if desired. PRs build and validate documentation without deploying it. The

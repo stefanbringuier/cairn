@@ -5,7 +5,7 @@ Describe the problem and the resulting behavior. Include a command or TUI exampl
 ## Design and documentation
 
 - [ ] Updated the relevant `docs/` pages in this PR.
-- [ ] Updated `docs/SPEC.md` and `docs/design.md` for behavior or architecture changes.
+- [ ] Updated `docs/spec.md` and `docs/design.md` for behavior or architecture changes.
 - [ ] Updated `internal/app/skill.md` for command, flag, JSON, or exit-code changes.
 - [ ] Included real screenshots for visible TUI changes.
 

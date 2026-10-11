@@ -10,8 +10,8 @@ def check(files):
     production = any(file.endswith(".go") and not file.endswith("_test.go") for file in files)
     if files and not docs:
         return "Every PR must include a relevant docs/*.md update."
-    if production and not docs.intersection({"docs/SPEC.md", "docs/design.md"}):
-        return "Production Go changes must update docs/SPEC.md or docs/design.md (both when behavior changes)."
+    if production and not docs.intersection({"docs/spec.md", "docs/design.md"}):
+        return "Production Go changes must update docs/spec.md or docs/design.md (both when behavior changes)."
     if any(set(PurePosixPath(file).parts).intersection({".cursor", ".codex", ".claude", ".agents"}) for file in files):
         return "Use root AGENTS.md; do not add vendor-specific agent dotfolders."
     return None

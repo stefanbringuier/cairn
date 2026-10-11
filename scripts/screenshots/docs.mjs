@@ -28,6 +28,7 @@ try {
   });
   browser = await chromium.launch({ executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || undefined });
   const page = await browser.newPage({ viewport: { width: 1440, height: 1100 }, deviceScaleFactor: 1 });
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto(url, { waitUntil: "networkidle" });
@@ -39,6 +40,24 @@ try {
     throw new Error("A documentation image failed to load");
   }
   await page.screenshot({ path: "/tmp/cairn-docs-desktop.png" });
+  const installCard = page.locator(".install-command").first();
+  const command = (await installCard.locator("code").textContent()).trimEnd();
+  await installCard.getByRole("button").click();
+  await page.waitForFunction(() => document.querySelector(".install-command button").textContent === "Copied ✓");
+  if (await page.evaluate(() => navigator.clipboard.readText()) !== command) throw new Error("Copy changed the install command");
+  const firstSteps = page.locator(".command-card").filter({ hasText: "Your first steps" }).first();
+  await firstSteps.getByRole("button").click();
+  const steps = (await firstSteps.locator("code").textContent()).trimEnd();
+  await page.waitForFunction(() => document.querySelectorAll(".copy-command")[1].textContent === "Copied ✓");
+  if (await page.evaluate(() => navigator.clipboard.readText()) !== steps) throw new Error("Copy changed the follow-up commands");
+  await page.locator("#get-started").scrollIntoViewIfNeeded();
+  await page.screenshot({ path: "/tmp/cairn-install-desktop.png" });
+  await page.evaluate(() => {
+    Object.defineProperty(navigator.clipboard, "writeText", { value: async () => { throw new Error("Clipboard denied"); } });
+  });
+  await installCard.getByRole("button").click();
+  await page.waitForFunction(() => document.querySelector(".install-command button").textContent === "Press Ctrl+C");
+  if (await page.evaluate(() => window.getSelection().toString()) !== command) throw new Error("Clipboard fallback did not select the command");
   await page.locator("#search").fill("restore");
   await page.locator('#results a[href="usage.html"]').waitFor();
   await page.locator('#results a[href="usage.html"]').click();
@@ -49,8 +68,11 @@ try {
   await page.goto(url, { waitUntil: "networkidle" });
   await checkWidth();
   await page.screenshot({ path: "/tmp/cairn-docs-mobile.png" });
+  await page.locator("#get-started").scrollIntoViewIfNeeded();
+  await checkWidth();
+  await page.screenshot({ path: "/tmp/cairn-install-mobile.png" });
   if (errors.length) throw new Error(errors.join("\n"));
-  console.log("Docs passed desktop/mobile layout, search, and navigation under /cairn/.");
+  console.log("Docs passed desktop/mobile layout, install/command copying, clipboard fallback, search, and navigation under /cairn/.");
   console.log("Previews: /tmp/cairn-docs-desktop.png and /tmp/cairn-docs-mobile.png");
 } finally {
   if (browser) await browser.close();

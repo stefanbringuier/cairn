@@ -17,7 +17,7 @@ PAGES = {
     "README.md": ("index.html", "Start here"),
     "docs/usage.md": ("usage.html", "Use cairn"),
     "docs/design.md": ("design.html", "Design & extension"),
-    "docs/SPEC.md": ("spec.html", "Specification"),
+    "docs/spec.md": ("spec.html", "Specification"),
     "CONTRIBUTING.md": ("contributing.html", "Contribute"),
     "AGENTS.md": ("agents.html", "Agent directives"),
     "docs/publishing.md": ("publishing.html", "Releases & publishing"),

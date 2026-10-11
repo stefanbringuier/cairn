@@ -25,6 +25,10 @@ jobs:
         with:
           go-version-file: go.mod
       - run: make tidy-check vet test build
+      - name: Installer with isolated release fixtures
+        run: |
+          sh -n scripts/install.sh
+          python3 scripts/test-install.py
       - name: pinned restic download still matches its hash
         run: CAIRN_NET_TEST=1 go test -run TestFetchRestic ./...
       - name: Real restore integration (isolated repository and scheduler)

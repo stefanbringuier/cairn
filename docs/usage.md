@@ -2,6 +2,40 @@
 
 [← README](../README.md)
 
+## Install
+
+Copy this command into your Linux terminal:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/stefanbringuier/cairn/main/scripts/install.sh | sh
+```
+
+The installer detects amd64 or arm64, downloads the latest release, checks its
+SHA-256 checksum, and installs `cairn` to `~/.local/bin` without sudo. It needs
+curl, tar, and the usual Linux command-line utilities.
+
+Mount your backup disk or share, then start:
+
+```sh
+export PATH="$HOME/.local/bin:$PATH"
+cairn init /mnt/backup/cairn
+cairn
+```
+
+Use the actual mounted folder in place of `/mnt/backup`. See [targets](#targets)
+for cloud destinations. Add the PATH line to your shell configuration if that
+folder is not already on your PATH.
+
+To choose a directory or version, download the script and pass the settings:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/stefanbringuier/cairn/main/scripts/install.sh -o /tmp/cairn-install.sh
+CAIRN_INSTALL_DIR="$HOME/.local/bin" CAIRN_VERSION=v0.1.0 sh /tmp/cairn-install.sh
+```
+
+Running the installer again replaces the binary; your settings and backups
+stay in place. Release archives are also available for manual installation.
+
 ## Everyday use
 
 | You want to… | Run |

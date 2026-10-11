@@ -2,7 +2,14 @@
 
 ## Reporting a vulnerability
 
-Please report it privately through [GitHub's vulnerability reporting](https://github.com/stefanbringuier/cairn/security/advisories/new). Don't open a public issue. You'll get a reply within a week, and a fix or mitigation plan once the issue is confirmed.
+Please report it privately by email to
+[stefanbringuier@gmail.com](mailto:stefanbringuier@gmail.com). Don't open a
+public issue. You'll get a reply within a week, and a fix or mitigation plan
+once the issue is confirmed.
+
+When GitHub private vulnerability reporting is enabled, you can also use
+**Security → Report a vulnerability** in the repository. Email remains available
+if that option is missing.
 
 Only the latest release is supported.
 

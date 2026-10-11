@@ -23,7 +23,7 @@ program stays independent of the docs and screenshot tooling.
 
 ## Extend a command
 
-Write its expected behavior in [SPEC.md](SPEC.md) first. Add dispatch and
+Write its expected behavior in [spec.md](spec.md) first. Add dispatch and
 command-specific help, keep JSON output structured, and define exit codes.
 Use a small function that returns an error; the executable owns termination.
 Add focused tests and update [usage.md](usage.md) and the agent reference.
@@ -72,6 +72,13 @@ CI checks formatting, lint, race tests, dependency downloads, documentation
 coverage, static cross-builds, and startup on several Linux distributions.
 The release workflow waits for successful main-branch CI before creating a
 Conventional Commit-driven version tag and publishing checked archives.
+
+`scripts/install.sh` keeps installation separate from the Go app. It detects
+the release architecture, verifies the archive checksum, and installs a user
+binary. README and usage examples separate installation from choosing a backup
+destination. CI checks the installer with isolated local release fixtures.
+The docs theme adds copy controls to shell command blocks while
+keeping the original Markdown usable on GitHub.
 
 The docs site renders the repository's Markdown and images with a small static
 builder. CI validates local links and builds the site. Pages deployment is
