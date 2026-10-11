@@ -2,14 +2,10 @@
 
 ## Reporting a vulnerability
 
-Please report it privately by email to
-[stefanbringuier@gmail.com](mailto:stefanbringuier@gmail.com). Don't open a
-public issue. You'll get a reply within a week, and a fix or mitigation plan
-once the issue is confirmed.
-
-When GitHub private vulnerability reporting is enabled, you can also use
-**Security → Report a vulnerability** in the repository. Email remains available
-if that option is missing.
+Please use [GitHub's private vulnerability reporting form](https://github.com/stefanbringuier/cairn/security/advisories/new),
+or choose **Security → Advisories → Report a vulnerability** in the repository.
+Keep vulnerability details out of public issues. You'll get a reply within a
+week, and a fix or mitigation plan once the issue is confirmed.
 
 Only the latest release is supported.
 
@@ -31,4 +27,4 @@ Only the latest release is supported.
 - Every GitHub Action is pinned to a commit SHA.
 - Workflows run with least-privilege tokens.
 - CI runs `go vet`, the race detector, golangci-lint with gosec, and govulncheck (also on a weekly schedule).
-- Releases are built by GoReleaser with `-trimpath` and ship a `checksums.txt`. On the public repo they also carry GitHub build provenance (`gh attestation verify`).
+- Releases are built by GoReleaser with `-trimpath` and ship a `checksums.txt`. Releases built while the repository is public also carry GitHub build provenance (`gh attestation verify`).
