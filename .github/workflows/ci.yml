@@ -2,8 +2,11 @@ name: ci
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, edited]
   push:
     branches: [main]
+  public:
+  workflow_dispatch:
   schedule:
     - cron: "17 6 * * 1" # weekly: catch new advisories in dependencies (we don't take Dependabot PRs)
 
@@ -11,8 +14,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.event_name }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   test:
@@ -70,13 +73,17 @@ jobs:
         run: make vuln
       - name: GitHub Actions syntax and shell checks
         run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+      - name: Release versions and rerun protection
+        run: |
+          go install github.com/caarlos0/svu/v3@v3.4.1
+          python3 scripts/test-release.py "$(go env GOPATH)/bin/svu"
       - uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
         with:
           version: v2.18.3
           args: check
 
   commits:
-    # PRs keep contributor identities; maintainer identity rules apply on main.
+    # Keep contributor authorship; GitHub squash merges use GitHub as committer.
     runs-on: ubuntu-latest
     if: github.event_name != 'schedule'
     steps:
@@ -86,16 +93,27 @@ jobs:
           persist-credentials: false
       - name: check commits
         env:
-          RANGE: ${{ github.event_name == 'pull_request' && format('{0}..{1}', github.event.pull_request.base.sha, github.event.pull_request.head.sha) || (github.event.before != '0000000000000000000000000000000000000000' && format('{0}..{1}', github.event.before, github.sha) || github.sha) }}
+          RANGE: ${{ github.event_name == 'pull_request' && format('{0}..{1}', github.event.pull_request.base.sha, github.event.pull_request.head.sha) || (github.event_name == 'push' && github.event.before != '0000000000000000000000000000000000000000' && format('{0}..{1}', github.event.before, github.sha) || github.sha) }}
           NAME: Stefan Bringuier
           EMAIL: stefanbringuier@gmail.com
           CHECK_IDENTITY: ${{ github.event_name == 'push' }}
+          CHECK_PR: ${{ github.event_name == 'pull_request' }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
         run: |
           fail=0
+          if [ "$CHECK_PR" = true ]; then
+            if ! printf '%s\n' "$PR_TITLE" | grep -Eq '^(feat|fix|perf|refactor|docs|test|build|ci|chore|style|revert)(\([a-z0-9-]+\))?!?: .+'; then
+              echo "::error::PR title must be a Conventional Commit subject for the squash merge"; fail=1
+            fi
+            if printf '%s\n%s\n' "$PR_TITLE" "$PR_BODY" | grep -Eiq 'co-authored-by|claude|generated with'; then
+              echo "::error::PR title/body carries an attribution trailer or AI mention"; fail=1
+            fi
+          fi
           for c in $(git rev-list "$RANGE"); do
-            who="$(git log -1 --format='%an <%ae>|%cn <%ce>' "$c")"
-            if [ "$CHECK_IDENTITY" = true ] && [ "$who" != "$NAME <$EMAIL>|$NAME <$EMAIL>" ]; then
-              echo "::error::$c author/committer is '$who', must be '$NAME <$EMAIL>'"; fail=1
+            committer="$(git log -1 --format='%cn <%ce>' "$c")"
+            if [ "$CHECK_IDENTITY" = true ] && [ "$committer" != "$NAME <$EMAIL>" ] && [ "$committer" != 'GitHub <noreply@github.com>' ]; then
+              echo "::error::$c committer is '$committer', expected maintainer or GitHub squash merge"; fail=1
             fi
             if ! git log -1 --format=%s "$c" | grep -Eq '^(feat|fix|perf|refactor|docs|test|build|ci|chore|style|revert)(\([a-z0-9-]+\))?!?: .+'; then
               echo "::error::$c subject isn't a conventional commit: $(git log -1 --format=%s "$c")"; fail=1
@@ -105,6 +123,17 @@ jobs:
             fi
           done
           exit $fail
+
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
+      - run: make docs-tools docs
 
   pr-docs:
     if: github.event_name == 'pull_request'

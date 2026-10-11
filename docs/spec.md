@@ -177,7 +177,9 @@ A timer run against an offline target exits 0 and says so.
 SHA-256 checksum. `CAIRN_VERSION=vX.Y.Z` selects a release and
 `CAIRN_INSTALL_DIR` selects the destination. Unsupported platforms and checksum
 failures exit without installing a binary. Installation does not initialize
-a repository or change backup configuration.
+a repository or change backup configuration. Rerunning the installer updates
+the binary to the latest release, or the selected `CAIRN_VERSION`; there is no
+automatic background updater.
 
 Releases provide statically linked Linux amd64 and arm64 binaries. Automatic
 dependency downloads cover those architectures. systemd user timers are needed

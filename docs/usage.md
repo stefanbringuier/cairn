@@ -30,11 +30,12 @@ To choose a directory or version, download the script and pass the settings:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/stefanbringuier/cairn/main/scripts/install.sh -o /tmp/cairn-install.sh
-CAIRN_INSTALL_DIR="$HOME/.local/bin" CAIRN_VERSION=v0.1.0 sh /tmp/cairn-install.sh
+CAIRN_INSTALL_DIR="$HOME/.local/bin" CAIRN_VERSION=v0.1.1 sh /tmp/cairn-install.sh
 ```
 
-Running the installer again replaces the binary; your settings and backups
-stay in place. Release archives are also available for manual installation.
+To update, rerun the first install command. It downloads the latest published
+release and replaces the binary; your settings and backups stay in place.
+Updates are manual. Release archives are also available for manual installation.
 
 ## Everyday use
 

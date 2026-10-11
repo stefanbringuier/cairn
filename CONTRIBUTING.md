@@ -57,12 +57,24 @@ fix: handle an offline repository
 refactor: simplify restore selection
 ```
 
-Use your own author identity in PRs. CI checks the maintainer's author and
-committer identity for integration commits on `main`; maintainers integrate
-contributions with that rule in mind. Do not add attribution trailers
-automatically. Conventional subjects drive releases after main-branch CI
-passes: `fix:` → patch, `feat:` → minor, `feat!:` or a `BREAKING CHANGE:` footer
-→ major. Details and retry instructions are in [docs/publishing.md](docs/publishing.md).
+Create a branch and open a PR to `main`. Use your own author identity and a
+Conventional Commit PR title: GitHub squash-merges the PR under that title,
+preserving the contributor as author and using GitHub as committer. Main CI
+accepts the maintainer or GitHub as committer. Do not add attribution trailers
+automatically.
+
+Required CI checks must pass against the current main branch before merging.
+Main CI runs again after the merge; only a successful run for the current main
+tip publishes a release. Rapid merges can combine into one release; commits
+from superseded runs enter the next passing tip's version calculation.
+Patch is the default, including documentation and CI changes.
+`feat:` selects a minor version; `feat!:` or a `BREAKING CHANGE:` footer
+selects a major version. Put a breaking-change footer in the PR body so it is
+included in the squash commit. PR CI validates the title and body against the
+main commit rules before merging. Merging is a maintainer action because it starts
+publication. Details and retry instructions are in
+[docs/publishing.md](docs/publishing.md).
+Editing a PR title or body reruns CI to validate the new squash commit metadata.
 
 ## Verify behavior and portability
 
