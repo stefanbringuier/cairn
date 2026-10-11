@@ -68,16 +68,17 @@ There is no mandatory second reviewer while this is a solo-maintainer project;
 the PR and its passing checks are still required. Increase the approval count
 when adding maintainers.
 
-GitHub currently refuses protection on this private repository under its plan.
-Once the repository is public, run from a clone using the maintainer's `gh` login:
+Run from a clone using the maintainer's `gh` login:
 
 ```sh
 sh scripts/protect-main.sh
 ```
 
-The script applies the committed settings through the GitHub API. Check the
-result in **Settings → Branches**. GitHub supports protected branches in public
-repositories on its free plan; private repositories need a paid plan. See
+The script applies the committed settings through the GitHub API, using
+`checks` with GitHub Actions app IDs for required checks. The legacy `contexts`
+field is omitted because sending both forms fails GitHub's request validation.
+Check the result in **Settings → Branches**. GitHub supports protected branches
+in public repositories on its free plan; private repositories need a paid plan. See
 [GitHub's protected branch guide](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches).
 
 ## Preview the docs
