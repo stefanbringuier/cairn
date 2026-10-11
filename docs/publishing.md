@@ -40,8 +40,10 @@ Release jobs serialize and keep the active publication running; a newer pending
 run can supersede an older pending run, whose changes enter the next release.
 
 GoReleaser builds both architectures, includes documentation and images,
-generates `checksums.txt`, and publishes the archives. Public releases also
-include GitHub build attestations. Tags and releases use the workflow's scoped
+generates `checksums.txt`, and publishes the archives. Releases built while the
+repository is public also include GitHub build attestations. Making an existing
+private release public does not retroactively add attestations; its SHA-256
+checksums still apply. Tags and releases use the workflow's scoped
 GitHub token; contributors do not need publishing credentials.
 
 If publication fails after a tag has been created, use the release workflow's

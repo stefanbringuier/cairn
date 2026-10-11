@@ -47,4 +47,5 @@ release:
     ```
     The installer verifies SHA-256 and replaces only the binary; settings and backups stay in place.
     To update to the latest release later, rerun without `CAIRN_VERSION`.
-    Public release archives also support `gh attestation verify <archive> -R stefanbringuier/cairn`.
+    Releases built while the repository is public also include provenance:
+    `gh attestation verify <archive> -R stefanbringuier/cairn`.
