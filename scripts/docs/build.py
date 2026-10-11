@@ -20,6 +20,7 @@ PAGES = {
     "docs/spec.md": ("spec.html", "Specification"),
     "CONTRIBUTING.md": ("contributing.html", "Contribute"),
     "AGENTS.md": ("agents.html", "Agent directives"),
+    "docs/agent-safety.md": ("agent-safety.html", "Agents & safety"),
     "docs/publishing.md": ("publishing.html", "Releases & publishing"),
     "SECURITY.md": ("security.html", "Security"),
 }

@@ -43,24 +43,34 @@ stay in place. Release archives are also available for manual installation.
 | see what's going on | `cairn` (or `cairn status`) |
 | get a file or folder back | `cairn restore ~/notes.md` |
 | …as it was 3 days ago | `cairn restore ~/notes.md --at 3d` |
-| …without touching the current copy | `cairn restore ~/proj --at 2026-10-01 --to /tmp/old` |
+| …as a new copy | `cairn recover ~/proj --at 2026-10-01` |
 | see every version | `cairn history ~/notes.md` |
+| compare saved versions | `cairn diff <older> <newer> --path ~/notes.md` |
 | back up right now | `cairn snapshot` or `cairn backup` |
 | snapshot more often | `cairn set snapshot.every 15m` |
 | keep more history | `cairn set backup.keep 14d,8w,24m,5y` |
 | add a folder | `cairn set snapshot.paths +/data/projects` |
 | skip something | `cairn set exclude +'*.iso'` |
 
-**Restoring in place is safe:**
+**Restores preserve an undo copy:**
 - cairn first shows what would change ("overwrite 3 changed · recreate 1 missing").
 - It asks before going ahead; pass `-y` to skip the question.
-- It snapshots your current version before overwriting, so every restore can be undone. The command to undo it is printed afterwards.
+- It saves existing destination contents before overwriting, including `--to`. An incomplete safety snapshot stops the restore. The undo command is printed before CLI replacement begins.
 - Files newer than the snapshot that aren't in it are never deleted.
 
 `cairn restore notes.txt` works from the folder containing that file, even if
 the file has been deleted. Any extension works. `cairn restore notes.txt -y`
 skips confirmation and still saves the current version first. Use `--to` to
-write a separate copy and `--at` to choose an older version.
+choose an alternate destination and `--at` to choose an older version. For a
+copy that must never replace existing work, use `cairn recover notes.txt`.
+It returns a new copy in a private temporary directory; `--to` selects an exact
+new filename or folder. Existing destinations are refused even if created
+during the export, and failed exports publish no partial copy.
+
+Safety snapshots include normally excluded content. Symbolic-link destinations
+and local repository overlaps are refused. A safety snapshot does not freeze
+ongoing edits: pause other writers before replacing current work. Files created
+after a missing-destination check are protected by atomic no-replace publication.
 
 For help, use `cairn help restore` or `cairn restore --help`. In the dashboard,
 press `?` for the basics or `t` for destination setup guides. Choose a storage
@@ -143,8 +153,25 @@ cairn --skill
 
 That prints a self-contained skill file: every command and flag, the JSON shapes, exit codes and step-by-step recipes. Point your agent at it and it can drive cairn with no other docs.
 
-- Every read command takes `--json`.
-- Without a TTY, nothing destructive happens without `-y`: cairn exits 2 instead of prompting.
+Start with `history`, `diff`, and `recover`, using `--json` for structured
+results. Diff compares saved snapshots, with optional `--path` filtering and
+`--metadata`; it does not compare live files or interpret video contents.
+
+```sh
+cairn history dog.mp4 --json
+cairn diff <older-snapshot> <newer-snapshot> --path dog.mp4 --json
+cairn recover dog.mp4 --at <candidate-snapshot> --json
+```
+
+Diff returns one object with full `from`/`to` IDs, `changes: [{path, modifier}]`,
+and counts in `summary`. Recover returns `{snapshot, source, destination}`.
+Its destination can be inspected with ffprobe or another format-aware tool
+while the live file stays untouched. Recover never needs `-y`.
+
+The skill requires explicit approval before replacing current work. `-y`
+skips a question; it does not supply approval. A skill cannot constrain an
+unrestricted shell running as your user. See [agent safety](agent-safety.md)
+for separate-user permissions and trusted-executor deployment choices.
 
 ## How it works
 

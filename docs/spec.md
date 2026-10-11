@@ -21,7 +21,7 @@ cairn is a thin CLI + TUI over restic. restic stores the data, systemd user time
   - a restic URL (`sftp:`, `s3:`, `b2:`, `rest:`, `azure:`, `gs:`, `swift:`, `rclone:`)
 - **Manifests**: `~/.local/state/cairn/manifests/*.txt`, one name per line, rewritten before every backup for these managers when present: apt, snap, flatpak, brew, uv tools, pipx, cargo, npm -g. `crontab -l` is saved as well.
 - **Excludes**: a built-in list of regenerable directories (venvs, caches, package stores, trash, container storage), plus `--exclude-caches --one-file-system`, user extras, the target (when it's local), and cairn's own rebuild scratch directory. Dotfiles and lockfiles are always kept.
-- **pre-restore**: before any in-place restore, cairn snapshots the current version (tag `pre-restore`) and keeps those snapshots for 30 days.
+- **pre-restore**: before replacing an existing destination, including `restore --to`, cairn snapshots its current contents (tag `pre-restore`) and keeps those snapshots for 30 days.
 
 ## Commands
 | command | does |
@@ -32,6 +32,8 @@ cairn is a thin CLI + TUI over restic. restic stores the data, systemd user time
 | `cairn snapshot` / `cairn backup` | run now (the timers run these) |
 | `cairn restore <path> [--at A] [--to T] [-y]` | restore in place (preview + confirm) or to T |
 | `cairn history <path> [--json]` | versions of a path |
+| `cairn diff <from> [<to>] [--path P] [--metadata] [--json]` | compare saved snapshots, with `to` defaulting to latest; read-only |
+| `cairn recover <path> [--at A] [--to T] [--json]` | export a new copy; never replace an existing destination |
 | `cairn rebuild [--host H] [--from OLDHOME] [-y]` | fresh machine: restore the home, stage `/etc`, reinstall packages one confirmed step at a time |
 | `cairn set <key> <value>` | `snapshot.every`, `snapshot.keep`, `snapshot.paths`, `backup.every`, `backup.keep`, `backup.paths`, `exclude` |
 | `cairn --skill` | print the agent skill |
@@ -43,6 +45,56 @@ cairn is a thin CLI + TUI over restic. restic stores the data, systemd user time
 - `keep`: comma list of `<n>h <n>d <n>w <n>m <n>y`, plus a bare `<n>` for `--keep-last n`.
 - Lists: `+x` adds, `-x` removes, and `a,b` replaces.
 - Relative restore paths use the current directory. A deleted file can be restored without recreating it first. `-y` bypasses confirmation while preserving the safety snapshot for an existing path.
+
+## Agent inspection and recovery
+
+`diff` accepts snapshot IDs, dates, and ages using the same syntax as `--at`.
+Selections are scoped to the configured host; safety snapshots are selected
+only by explicit ID. It compares saved versions, not the live working tree.
+`--path` filters one absolute or relative file/folder using path boundaries.
+`--metadata` includes file metadata changes. JSON is one object:
+`{from, to, path?, changes: [{path, modifier}], summary: {added, removed,
+modified, type_changed, metadata_changed, damaged}}`. `from` and `to` are full snapshot
+IDs. Modifiers are restic's `+`, `-`, `M`, `T`, `U`, and `?`; counts are items
+within the selected path, not repository-wide byte statistics. No changes is
+a successful result with `changes: []`.
+Warnings or errors reading a subtree abort the comparison even if restic exits
+zero and prints statistics. `?`/`damaged` indicates possible damage, not a
+confirmed diagnosis. History JSON also returns full snapshot IDs.
+
+`recover` exports the selected file or folder to an exact new destination.
+Without `--to`, it creates a private temporary recovery directory. It stages
+the result, then publishes it using a Linux rename that refuses replacement;
+existing files, folders, and symlinks cause failure even if they appear during
+the export. Failed exports do not publish partial results. Unsupported
+filesystems fail rather than fall back to an overwrite. `-y` is not accepted.
+JSON is `{snapshot, source, destination}` with a full snapshot ID and absolute
+paths. Reads use `--no-lock` so a repository may be supplied read-only; a
+concurrent prune can cause recovery to fail without publishing the result.
+
+Before any existing destination is replaced, including `restore --to`, its
+current content must be saved successfully. Partial backups, invalid summaries,
+or a missing undo snapshot abort replacement. Ordinary backup excludes do not
+apply to these safety copies. A safety copy of a directory containing the
+local backup repository is refused to avoid backing up the repository itself.
+Destinations inside that repository or containing active cairn configuration
+or its password are refused to preserve access to undo snapshots. The undo
+command uses the full snapshot ID. A missing restore destination is staged
+and atomically published without replacement, preserving native node metadata
+(full filesystem-root exports keep restic's subtree-root semantics)
+and allowing deleted symbolic links to be recreated. Existing `--to` container
+semantics are resolved once; the write uses the exact destination that was saved.
+An undo command is printed before replacement starts, including on a later
+CLI restore failure; the TUI includes undo information in a restore error.
+Symbolic-link destinations are refused. These precautions are not a transaction with other processes
+editing the same files.
+
+The embedded skill requires agents to inspect and recover new copies first.
+Replacing existing work requires explicit user authorization for the exact
+source version and destination; `-y` is not evidence of that authorization.
+A skill, command flag, or user-writable config is not an access-control
+boundary. Preventing an unrestricted agent from bypassing cairn requires
+permissions or an executor controlled outside the agent.
 
 ## Terminal experience
 
@@ -83,7 +135,11 @@ A timer run against an offline target exits 0 and says so.
   - resolve: covering snapshots ≤ the `--at` time, newest first, checked with `R ls S P`
   - preview: `R restore S:DIR --target DIR --include /BASE --dry-run --json --verbose=2`
   - then `R backup --tag pre-restore P`, then the real restore
-  - `--to` an existing dir: `restore S:DIR --target TO --include /BASE`; a new file name: `R dump --target TO S P`; a new dir name: `R restore S:P --target TO`
+  - resolve `--to` containers once into an exact destination; save existing destination contents without ordinary excludes, require a complete summary and verified root node, and print the full undo ID before writing
+  - same-name existing destinations use `R restore S:DIR --target DESTDIR --include /BASE`; renamed existing files use `R dump --target DEST S P`; renamed existing dirs use `R restore S:P --target DEST`
+  - missing destinations use native restore into staging, then atomic no-replace publication (including deleted links and saved file/folder metadata)
+- **recover**: files use `R dump --no-lock --target STAGING S P` with mode 0600; folders use `R restore --no-lock S:P --target STAGING`. Publish only with no-replace rename. File copies contain bytes for inspection, rather than executable permissions or original timestamps; folder export root metadata follows restic's subtree export semantics.
+- **diff**: `R diff --json --no-lock [--metadata] FROM TO`; reject reported read errors and incomplete output, filter by path boundaries, and return one structured object.
 - **history**: file: `R find --json --host H P` (exact-path matches only); dir: the covering snapshots.
 - **rebuild**:
   - `R restore S:OLDHOME --target $HOME`
@@ -108,6 +164,7 @@ A timer run against an offline target exits 0 and says so.
 - restic and rclone downloads are checked against SHA256s compiled into cairn, with a client timeout and a size cap.
 - Manifest names from a backup must match `^[A-Za-z0-9@][A-Za-z0-9@._+:/=-]*$` (no `/` for apt/snap) before they reach any install command. `sudo sh -c` takes its paths as positional args.
 - Paths and names from the repo are stripped of control characters before printing.
+- Arguments after the CLI `--` delimiter remain literal paths, including flag-like names.
 - `--at`: a unique id prefix (4+ hex chars) wins, then dates, then ages (bounded). If the newest covering snapshot lacks the path, a single `find` looks further back.
 - `init` records `since`. `rebuild` only trusts snapshots from before that, takes the home from the newest snapshot or backup that has it, and keeps the old config's settings (paths re-homed).
 - Timer units carry the user's PATH (so manifests can find cargo, brew, nvm…). ExecStart is quoted and checked for systemd specials.

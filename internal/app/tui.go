@@ -271,12 +271,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch msg.String() {
 			case "y", "enter":
 				m.busy, m.scr = "restoring "+tildify(m.target.Path), dirList
-				r, c, s, p := m.r, m.c, m.snap, m.target.Path
+				r, c, s, n, p := m.r, m.c, m.snap, m.target, m.target.Path
 				return m, func() tea.Msg {
-					undo, err := restoreInPlace(r, c, s, p)
+					undo, err := restoreInPlace(r, c, s, n, p)
 					text := "restored " + tildify(p) + " from " + s.ShortID
 					if undo != "" {
-						text += " · undo: cairn restore " + tildify(p) + " --at " + undo
+						text += " · undo: " + undoCommand(p, undo)
 					}
 					return doneMsg{text, err}
 				}

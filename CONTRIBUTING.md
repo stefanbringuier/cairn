@@ -71,6 +71,14 @@ storage changes (Python 3 and restic 0.17+ required). It checks a relative file,
 interactive confirmation and cancellation, noninteractive refusal, `-y`, a
 deleted file, the undo snapshot, and a directory. If rclone is installed it
 also exercises a real local rclone remote, without touching your accounts.
+It also checks snapshot diffs, no-overwrite recovery, permissions/timestamps,
+deleted links, incomplete safety backups, and undo for normally excluded files
+and alternate destinations. If ffmpeg and ffprobe are installed, it recovers a
+real 50-second video while preserving a newer unsnapshotted edit.
+
+Review [agent safety](docs/agent-safety.md) before changing recovery behavior.
+Keep agent defaults on separate copies; permission enforcement belongs to the
+operating system or a trusted executor, not a bypassable command flag.
 
 `make cross-check` builds static Linux amd64 and arm64 binaries. CI exercises
 startup in Debian, Ubuntu, Fedora, Arch, and Alpine containers; this is binary

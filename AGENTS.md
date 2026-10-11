@@ -35,6 +35,14 @@ operation that needs confirmation exits 2. Pass repository paths after `--`,
 sanitize terminal text, and keep credentials out of errors and screenshots.
 Use disposable repositories and isolated XDG directories for integration tests.
 
+Agent inspection defaults to `history`, `diff`, and `recover` into new copies.
+Never infer replacement approval from `-y`, a broad recovery request, or an
+agent-controlled prompt. Complete safety backups include normally excluded
+files and existing `--to` destinations; partial backups abort replacement.
+Missing destinations use atomic no-replace publication. Skills and CLI guards
+cannot constrain unrestricted same-user shell access; document external
+permissions honestly. See [agent safety](docs/agent-safety.md).
+
 ## Validate and contribute
 
 Run `make setup` once, then `make fmt` and `make check vet`. Add focused tests

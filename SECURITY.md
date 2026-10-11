@@ -23,6 +23,8 @@ Only the latest release is supported.
   - Package lists restored from a backup must be plain package names before they reach `sudo apt install` and similar commands.
 - **No secrets in argv.** The repository location goes to restic through its environment, and a password through a file (mode 0600). Credentials in URL targets are hidden whenever cairn prints the target.
 - **Passwords are off by default.** That's a deliberate choice for simple local and NAS setups: anyone who can read the target can read your files. For cloud or shared targets, use `cairn init <target> --password`.
+- **Recovery before replacement.** `recover` publishes only new copies. Restores require complete safety snapshots for existing destinations; `-y` cannot skip that backup. Concurrent external edits are not frozen by a snapshot.
+- **Agent permissions belong outside the CLI.** Skills and prompts cannot restrict an unrestricted agent running as the owner. Use a separate Linux identity or trusted executor with read-only storage access and a separate recovery area. See [agent safety](docs/agent-safety.md).
 
 ## Supply chain
 

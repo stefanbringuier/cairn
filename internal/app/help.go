@@ -14,6 +14,8 @@ const usage = `cairn — a way back to your files, with restic as your trail
   cairn backup          Also save system settings and installed-package lists.
   cairn restore <path>  Get a file or folder back; preview and confirm first.
   cairn history <path>  See its saved versions.
+  cairn diff <from>     See changed files between saved versions.
+  cairn recover <path>  Export a new copy; never overwrite an existing path.
   cairn status          See the destination, schedules, and backup health.
   cairn set             See your settings; add a key and value to change one.
   cairn rebuild         Recover your home and walk through reinstalling packages.
@@ -74,6 +76,11 @@ folder; the file can have any extension, and it can have been deleted.
   --to   Write to a different file or folder instead of restoring in place.
   -y     Skip confirmation, including when run by a script or agent.
 
+Existing destinations are saved first, including with --to; an incomplete
+safety copy aborts the restore. Symbolic-link destinations are refused.
+Active cairn config/password and local repository overlaps are also refused
+to keep access to your undo snapshot. Use recover for copies of those paths.
+For inspection or agent work, use cairn recover to export a new copy.
 In-place restores save the current version first and print an undo command.
 Newer files outside the snapshot are kept. Without a terminal, a confirmation
 that cannot be shown exits 2; pass -y to proceed.
@@ -100,6 +107,42 @@ Without systemd user timers, run snapshots and backups manually.
 		return "cairn targets [--json]\n\n--json prints structured setup guides for scripts and agents.\n\n" + targetGuide()
 	case "snapshot", "backup":
 		return "cairn " + cmd + "\n\nSave a new version now. Snapshots cover your home and added folders. Full\nbackups also include system settings, keyrings, and package lists. Shared\nfiles are stored once; caches and disposable environments are skipped.\n"
+	case "diff":
+		return `cairn diff <from> [<to>] [--path <file-or-folder>] [--metadata] [--json]
+
+Compare two saved snapshots. The second defaults to latest. Use snapshot IDs,
+dates, or ages such as 3d; comparisons stay within this machine's history.
+This does not compare with files currently on disk or change any files.
+
+  cairn diff 3d                          Changes since the saved version 3 days ago.
+  cairn diff abc12345 def67890 --json     Structured changes between two IDs.
+  cairn diff 3d --path dog.mp4 --json     Changes to one file.
+
+  --path      Limit the results to a file or folder in your current directory.
+  --metadata  Include permissions, modification times, and other metadata.
+  --json      One object with full IDs, changes, and counts for the selected path.
+
+Markers: + added, - removed, M content changed, T type changed, U metadata
+changed, ? possible damage. Binary changes do not explain video duration or contents;
+use cairn recover and inspect the new copy with a tool such as ffprobe.
+`
+	case "recover":
+		return `cairn recover <file-or-folder> [--at <version>] [--to <new-path>] [--json]
+
+Export a saved version as a new copy. Current work stays in place. Without
+--to, the copy goes to a private temporary directory and its path is printed.
+
+  cairn recover dog.mp4 --at 3d --json
+  cairn recover dog.mp4 --at abc12345 --to /tmp/dog-earlier.mp4
+
+  --at    latest (default), snapshot ID, date, or age such as 3d.
+  --to    Exact new file or folder name. An existing destination is refused.
+  --json  Print {snapshot, source, destination} for an agent or script.
+
+No confirmation is needed because existing paths cannot be replaced. -y is
+not accepted. Failed exports do not publish partial copies. Use restore only
+when replacing current work is explicitly intended.
+`
 	case "history":
 		return "cairn history <file-or-folder> [--json]\n\nList saved versions, newest first. Use a snapshot ID with restore --at\nto pick one. --json prints structured output for scripts and agents.\n"
 	case "status", "dashboard":

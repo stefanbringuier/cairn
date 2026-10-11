@@ -3,6 +3,7 @@ package app
 import (
 	"bufio"
 	"bytes"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -187,27 +188,104 @@ func (r Restic) dryRun(s Snap, p string) (preview, error) {
 
 // restoreInPlace snapshots the current version (tag pre-restore), then puts s's version of p back.
 // It returns the safety snapshot's id ("" if p didn't exist) so the restore can be undone.
-func restoreInPlace(r Restic, c Config, s Snap, p string) (string, error) {
-	var undo string
-	if _, err := os.Lstat(p); err == nil {
-		args := slices.Concat([]string{"backup", "--json", "--host", c.Host, "--tag", "pre-restore", "--one-file-system", "--retry-lock", "10m"},
-			c.excludeArgs(), []string{"--", p})
-		b, err := r.out(args...)
-		if err != nil && codeOf(err) != exitPartial {
-			return "", fmt.Errorf("safety snapshot failed, nothing restored: %w", err)
-		}
-		var sum summary
-		_ = json.Unmarshal([]byte(lastLine(string(b))), &sum)
-		undo = short(sum.SnapshotID)
+func restoreInPlace(r Restic, c Config, s Snap, n Node, p string) (string, error) {
+	undo, err := saveBeforeRestore(r, c, p)
+	if err != nil {
+		return "", err
 	}
-	_, err := r.out(includeArgs(s, p, filepath.Dir(p))...)
+	err = restoreSaved(r, s, n, p, p, undo)
+	if err != nil && undo != "" {
+		err = fmt.Errorf("%w; undo: %s", err, undoCommand(p, undo))
+	}
 	return undo, err
 }
 
-// restoreTo writes s's version of p to `to`: into it if it's a dir, else as that name.
-func restoreTo(r Restic, s Snap, n Node, p, to string) error {
-	if fi, err := os.Stat(to); err == nil && fi.IsDir() {
-		_, err := r.out(includeArgs(s, p, to)...)
+func undoCommand(path, id string) string {
+	if clean(path) != path {
+		return "snapshot " + id + " (restore using the original path)"
+	}
+	return "cairn restore --at " + id + " -y -- '" + strings.ReplaceAll(path, "'", "'\\''") + "'"
+}
+
+// saveBeforeRestore must protect all current content, even normally excluded files.
+func saveBeforeRestore(r Restic, c Config, path string) (string, error) {
+	info, err := os.Lstat(path)
+	missing := os.IsNotExist(err)
+	if err != nil && !missing {
+		return "", err
+	}
+	if !missing && info.Mode()&os.ModeSymlink != 0 {
+		return "", fmt.Errorf("refusing to replace a symbolic link: use cairn recover with a new destination")
+	}
+	root, err := canonicalPath(path)
+	if err != nil {
+		return "", err
+	}
+	for _, control := range []string{configFile(), passwordFile()} {
+		if resolved, err := canonicalPath(control); err == nil {
+			control = resolved
+		}
+		if withinPath(control, root) {
+			return "", fmt.Errorf("destination contains active cairn configuration or password; use cairn recover to keep undo access available")
+		}
+	}
+	if filepath.IsAbs(c.Repo) {
+		repo, repoErr := canonicalPath(c.Repo)
+		if repoErr == nil && (withinPath(root, repo) || withinPath(repo, root)) {
+			return "", fmt.Errorf("restore destination overlaps the backup repository; use cairn recover with a new destination")
+		}
+	}
+	if missing {
+		return "", nil
+	}
+	b, err := r.out("backup", "--json", "--host", c.Host, "--tag", "pre-restore", "--retry-lock", "10m", "--", path)
+	if err != nil {
+		return "", fmt.Errorf("safety snapshot incomplete or failed, nothing restored: %w", err)
+	}
+	var sum struct {
+		Type string `json:"message_type"`
+		summary
+	}
+	if err := json.Unmarshal([]byte(lastLine(string(b))), &sum); err != nil {
+		return "", fmt.Errorf("cannot verify safety snapshot, nothing restored: %w", err)
+	}
+	if id, err := hex.DecodeString(sum.SnapshotID); err != nil || len(id) != 32 || sum.Type != "summary" {
+		return "", fmt.Errorf("missing safety snapshot ID, nothing restored")
+	}
+	nodes, err := r.ls(sum.SnapshotID, path)
+	if err != nil {
+		return "", fmt.Errorf("cannot verify safety snapshot, nothing restored: %w", err)
+	}
+	if len(nodes) == 0 || nodes[0].Path != path {
+		return "", fmt.Errorf("current path missing from safety snapshot, nothing restored")
+	}
+	return sum.SnapshotID, nil
+}
+
+// canonicalPath resolves existing ancestors as well as paths that have not been created yet.
+func canonicalPath(path string) (string, error) {
+	missing := ""
+	for {
+		resolved, err := filepath.EvalSymlinks(path)
+		if err == nil {
+			return filepath.Join(resolved, missing), nil
+		}
+		parent := filepath.Dir(path)
+		if !os.IsNotExist(err) || parent == path {
+			return "", err
+		}
+		missing = filepath.Join(filepath.Base(path), missing)
+		path = parent
+	}
+}
+
+// restoreSaved writes only the exact destination whose current contents were saved.
+func restoreSaved(r Restic, s Snap, n Node, p, to, undo string) error {
+	if undo == "" {
+		return publishCopy(r, s, n, p, to, true)
+	}
+	if filepath.Base(p) == filepath.Base(to) {
+		_, err := r.out(includeArgs(s, p, filepath.Dir(to))...)
 		return err
 	}
 	if n.Type == "dir" {
@@ -244,7 +322,14 @@ func cmdRestore(c Config, p, at, to string, yes bool) error {
 					return err
 				}
 			}
-			if err := restoreTo(r, s, n, p, to); err != nil {
+			undo, err := saveBeforeRestore(r, c, dest)
+			if err != nil {
+				return err
+			}
+			if undo != "" {
+				note("undo: " + undoCommand(dest, undo))
+			}
+			if err := restoreSaved(r, s, n, p, dest, undo); err != nil {
 				return err
 			}
 			ok("restored " + tildify(p) + " from " + from + " → " + tildify(dest))
@@ -264,14 +349,17 @@ func cmdRestore(c Config, p, at, to string, yes bool) error {
 			return err
 		}
 	}
-	undo, err := restoreInPlace(r, c, s, p)
+	undo, err := saveBeforeRestore(r, c, p)
 	if err != nil {
 		return err
 	}
-	ok("restored " + tildify(p) + " from " + from)
 	if undo != "" {
-		note("undo: cairn restore " + tildify(p) + " --at " + undo)
+		note("undo: " + undoCommand(p, undo))
 	}
+	if err := restoreSaved(r, s, n, p, p, undo); err != nil {
+		return err
+	}
+	ok("restored " + tildify(p) + " from " + from)
 	return nil
 }
 
@@ -307,9 +395,9 @@ func history(r Restic, c Config, p string) ([]Version, error) {
 	}
 	for _, s := range slices.Backward(snaps) {
 		if n, ok := found[s.ID]; ok {
-			out = append(out, Version{Snapshot: s.ShortID, Kind: s.kind(), Time: s.Time, Size: n.Size, Mtime: n.Mtime})
+			out = append(out, Version{Snapshot: s.ID, Kind: s.kind(), Time: s.Time, Size: n.Size, Mtime: n.Mtime})
 		} else if isDir && s.covers(p) {
-			out = append(out, Version{Snapshot: s.ShortID, Kind: s.kind(), Time: s.Time})
+			out = append(out, Version{Snapshot: s.ID, Kind: s.kind(), Time: s.Time})
 		}
 	}
 	return out, nil

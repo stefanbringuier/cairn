@@ -88,8 +88,9 @@ setup instructions; the demo repository is local.
 | Do this | Run this |
 | :--- | :--- |
 | Restore a file from three days ago | `cairn restore ~/notes.md --at 3d` |
-| Recover a folder somewhere else | `cairn restore ~/projects --to /tmp/recovered` |
+| Recover a folder as a new copy | `cairn recover ~/projects` |
 | See a file's history | `cairn history ~/notes.md` |
+| Compare saved versions | `cairn diff <older> <newer>` |
 | Back up right now | `cairn snapshot` / `cairn backup` |
 | Take snapshots every 15 minutes | `cairn set snapshot.every 15m` |
 | Rebuild on a replacement machine | `cairn rebuild` |
@@ -100,7 +101,10 @@ setup instructions; the demo repository is local.
 
 ## Agent friendly
 
-`cairn --skill` prints the complete command reference for AI agents. Read commands support `--json`; noninteractive actions that need confirmation require `-y`.
+`cairn --skill` gives agents the command reference and recovery rules.
+`history` and `diff` inspect saved versions; `recover --json` creates a new
+copy without overwriting. Replacements require explicit approval. See
+[agent safety](docs/agent-safety.md) for enforced permissions.
 
 `cairn restore notes.txt` previews and asks first; add `-y` to proceed without
 asking. The current version is saved either way. Try `cairn help restore`.

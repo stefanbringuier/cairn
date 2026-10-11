@@ -11,7 +11,7 @@ be able to use the same commands and understand the same results.
 | `cmd/cairn/main.go` | Build version and process exit |
 | `internal/app/cli.go`, `help.go` | Command dispatch, prompts, examples, storage guides |
 | `config.go`, `schedule.go` | User defaults, retention, systemd timers, status |
-| `restic.go`, `restore.go`, `run.go` | Repository access, restore safety, backup runs |
+| `restic.go`, `restore.go`, `recover.go`, `diff.go`, `run.go` | Repository access, safe exports, snapshot comparisons, restore safety, backup runs |
 | `fetch.go` | Pinned, checksum-verified dependency binaries |
 | `rebuild.go` | Recovery and individually confirmed package installation |
 | `tui.go`, `ui.go`, `guide.go` | Bubble Tea state, presentation, help and setup screens |
@@ -32,6 +32,30 @@ Relative file paths resolve against the current working directory. A deleted
 file does not have to exist for restoration. `-y` accepts confirmation but
 does not remove the pre-restore snapshot. Changes to this flow need the real
 disposable-repository integration check.
+
+## Agents and permission boundaries
+
+Expose restic's snapshot diff as a small, read-only command with path filtering
+and one JSON object. Keep media interpretation outside cairn: agents can
+recover candidate videos and run ffprobe on the copies. A byte-level diff
+cannot establish a video's duration or explain a scene change.
+
+`recover` is the default action for agents. It writes a new file or folder
+through staging and `RENAME_NOREPLACE`, so even a concurrent destination
+creation cannot turn an export into an overwrite. `restore` remains the
+human-facing replacement operation; complete safety backups are mandatory for
+existing destinations, including alternate destinations.
+
+CLI guards prevent accidental damage through these commands. They cannot
+restrict an agent with the same Linux permissions as the maintainer. An
+unrestricted shell can invoke restic, change config, or write files directly.
+For enforced access, use a separate Linux identity or an executor outside the
+agent: allow only history/diff/recover, supply read-only repository credentials
+and read-only config, grant write access only to a separate recovery directory,
+and withhold sudo and maintainer credentials. Restrict access to the intended
+project's repository rather than exposing unrelated backups. A trusted human
+or broker performs approved replacements; a prompt in a terminal that the
+agent controls is not independent approval. See [agent-safety.md](agent-safety.md).
 
 ## Extend the TUI
 

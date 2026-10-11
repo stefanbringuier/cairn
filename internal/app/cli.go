@@ -73,13 +73,26 @@ func confirm(title, desc, yes string) error {
 // parse lets flags appear before or after positional args.
 func parse(fs *flag.FlagSet, args []string) []string {
 	var pos []string
-	for {
-		_ = fs.Parse(args) // ExitOnError
-		if args = fs.Args(); len(args) == 0 {
-			return pos
+	for len(args) > 0 {
+		if args[0] == "--" {
+			return append(pos, args[1:]...)
 		}
-		pos, args = append(pos, args[0]), args[1:]
+		if !strings.HasPrefix(args[0], "-") || args[0] == "-" {
+			pos, args = append(pos, args[0]), args[1:]
+			continue
+		}
+		n := 1
+		name, _, hasValue := strings.Cut(strings.TrimLeft(args[0], "-"), "=")
+		if f := fs.Lookup(name); f != nil && !hasValue {
+			boolean, ok := f.Value.(interface{ IsBoolFlag() bool })
+			if !ok || !boolean.IsBoolFlag() {
+				n = min(2, len(args))
+			}
+		}
+		_ = fs.Parse(args[:n]) // ExitOnError
+		args = args[n:]
 	}
+	return pos
 }
 
 // Run dispatches a command and returns its process exit status.
@@ -178,6 +191,32 @@ func Run(args []string, version string) int {
 			err = &cliError{exitNeedsYes, "usage: cairn history <path> [--json]"}
 		} else if c, err = loadConfig(); err == nil {
 			err = cmdHistory(c, expand(pos[0]), *asJSON)
+		}
+	case "diff":
+		path := fs.String("path", "", "compare only this file or folder")
+		metadata := fs.Bool("metadata", false, "include permissions and other metadata changes")
+		pos := parse(fs, args)
+		var c Config
+		if len(pos) < 1 || len(pos) > 2 {
+			err = &cliError{exitNeedsYes, "usage: cairn diff <from> [<to>] [--path P] [--metadata] [--json]"}
+		} else if c, err = loadConfig(); err == nil {
+			to := "latest"
+			if len(pos) == 2 {
+				to = pos[1]
+			}
+			err = cmdDiff(c, pos[0], to, *path, *metadata, *asJSON)
+		}
+	case "recover":
+		at := fs.String("at", "latest", "which saved version to recover")
+		to := fs.String("to", "", "exact new destination; default is a private temporary directory")
+		pos := parse(fs, args)
+		hasYes := false
+		fs.Visit(func(f *flag.Flag) { hasYes = hasYes || f.Name == "y" })
+		var c Config
+		if len(pos) != 1 || hasYes {
+			err = &cliError{exitNeedsYes, "usage: cairn recover <path> [--at A] [--to T] [--json] (never overwrites; no -y)"}
+		} else if c, err = loadConfig(); err == nil {
+			err = cmdRecover(c, pos[0], *at, *to, *asJSON)
 		}
 	case "rebuild":
 		host := fs.String("host", "", "rebuild from this machine's backups")
@@ -377,7 +416,7 @@ func cmdHistory(c Config, p string, asJSON bool) error {
 	}
 	lipgloss.Println(accent.Render(tildify(p)) + dim.Render(fmt.Sprintf("  %d versions, newest first", len(vs))))
 	for _, v := range vs {
-		line := fmt.Sprintf("  %s  %-11s %-8s %s", v.Time.Local().Format("2006-01-02 15:04"), v.Kind, v.Snapshot, dim.Render(ago(v.Time)))
+		line := fmt.Sprintf("  %s  %-11s %-8s %s", v.Time.Local().Format("2006-01-02 15:04"), v.Kind, short(v.Snapshot), dim.Render(ago(v.Time)))
 		if !v.Mtime.IsZero() {
 			line += dim.Render(fmt.Sprintf("  · %d bytes, modified %s", v.Size, v.Mtime.Local().Format("2006-01-02 15:04")))
 		}
