@@ -41,8 +41,11 @@ release:
     owner: stefanbringuier
     name: cairn
   footer: |
-    **Install** (Linux amd64; use `arm64` for ARM):
+    **Install or update** (Linux amd64 and arm64):
     ```sh
-    curl -fsSL https://github.com/stefanbringuier/cairn/releases/download/{{ .Tag }}/cairn_linux_amd64.tar.gz | tar -xz -C ~/.local/bin cairn
+    curl -fsSL https://raw.githubusercontent.com/stefanbringuier/cairn/main/scripts/install.sh | CAIRN_VERSION={{ .Tag }} sh
     ```
-    Verify with `sha256sum -c checksums.txt` (and `gh attestation verify cairn_linux_amd64.tar.gz -R stefanbringuier/cairn` once the repo is public).
+    The installer verifies SHA-256 and replaces only the binary; settings and backups stay in place.
+    To update to the latest release later, rerun without `CAIRN_VERSION`.
+    Releases built while the repository is public also include provenance:
+    `gh attestation verify <archive> -R stefanbringuier/cairn`.

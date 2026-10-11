@@ -50,11 +50,16 @@ for behavior changes; use `make integration` for restore or storage changes.
 Run `make cross-check` when changing platform-dependent code, and `make docs`
 when changing documentation or the site. See CONTRIBUTING.md for optional tools.
 
-Use Conventional Commit subjects. Contributor identity belongs to the actual
-author; maintainer identity checks apply to integration commits on `main`.
+Work on a branch and submit a PR to `main`; do not push changes directly to
+`main`. Use Conventional Commit subjects and PR titles, since PRs merge by
+squashing. Contributor identity belongs to the actual author; integration
+committers on `main` are the maintainer or GitHub's squash-merge identity.
 Do not add attribution trailers automatically. Do not add vendor-specific
 agent dotfolders; this root document is the common directive.
 
 Keep releases statically linked for Linux amd64 and arm64. Do not change
 visibility, push tags, publish releases, or enable Pages as part of routine
 development. Those are maintainer actions with explicit authorization.
+Merging a PR publishes a release after main CI succeeds, so merging also needs
+maintainer authorization. Patch releases are the default; features and breaking
+changes select larger versions. See docs/publishing.md for gates and retries.

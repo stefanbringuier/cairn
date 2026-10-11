@@ -94,12 +94,20 @@ Container smoke checks prove binary startup, not systemd or a complete recovery.
 
 CI checks formatting, lint, race tests, dependency downloads, documentation
 coverage, static cross-builds, and startup on several Linux distributions.
-The release workflow waits for successful main-branch CI before creating a
-Conventional Commit-driven version tag and publishing checked archives.
+Changes enter `main` through PRs with required, current CI checks. The release
+workflow then waits for successful main-branch CI, including the docs build,
+before creating a version tag and publishing checked archives. Every new
+current passing tip releases a patch by default; Conventional Commit features and
+breaking changes select minor and major versions. A tagged commit does not
+release again on a rerun. Manual publication retries need an existing main tag
+and evidence that its commit passed main CI. Main protection settings live in
+`.github/main-protection.json` and are applied by `scripts/protect-main.sh`.
 
 `scripts/install.sh` keeps installation separate from the Go app. It detects
 the release architecture, verifies the archive checksum, and installs a user
-binary. README and usage examples separate installation from choosing a backup
+binary. Rerunning it updates that binary without changing settings or backups;
+updates do not run in the background. README and usage examples separate
+installation from choosing a backup
 destination. CI checks the installer with isolated local release fixtures.
 The docs theme adds copy controls to shell command blocks while
 keeping the original Markdown usable on GitHub.
