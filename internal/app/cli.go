@@ -1,4 +1,4 @@
-package main
+package app
 
 import (
 	"crypto/rand"
@@ -23,22 +23,6 @@ import (
 
 //go:embed skill.md
 var skillMD string
-
-var version = "dev" // set by the release build
-
-const usage = `cairn: simple snapshots and full-machine backups (restic underneath)
-
-  cairn                          dashboard (TUI)
-  cairn init <target>            set up: a mounted path, an rclone remote (gdrive:x) or a restic URL
-  cairn status [--json]
-  cairn snapshot | backup        run now
-  cairn restore <path> [--at latest|<id>|2026-10-01|3d] [--to <dir|file>] [-y]
-  cairn history <path> [--json]
-  cairn rebuild [-y]             new machine: restore home + reinstall packages
-  cairn set [<key> <value>]      e.g. snapshot.every 30m, backup.keep 7d,4w,12m, snapshot.paths +~/Data
-  cairn --skill                  everything an AI agent needs to drive cairn
-  cairn --version
-`
 
 var (
 	accent = lipgloss.NewStyle().Foreground(lipgloss.Color("#E0AF68")).Bold(true)
@@ -78,7 +62,9 @@ func confirm(title, desc, yes string) error {
 		return needsYes(title)
 	}
 	var v bool
-	if err := huh.NewConfirm().Title(title).Description(desc).Affirmative(yes).Negative("Cancel").Value(&v).Run(); err != nil || !v {
+	lipgloss.Println(cliBrand())
+	if err := huh.NewConfirm().Title(title).Description(desc).Affirmative(yes).Negative("Cancel").Value(&v).
+		WithTheme(huh.ThemeFunc(settingsTheme)).Run(); err != nil || !v {
 		return errCancelled
 	}
 	return nil
@@ -96,14 +82,29 @@ func parse(fs *flag.FlagSet, args []string) []string {
 	}
 }
 
-func main() {
-	args := os.Args[1:]
+// Run dispatches a command and returns its process exit status.
+func Run(args []string, version string) int {
 	cmd := "dashboard"
 	if len(args) > 0 {
 		cmd, args = args[0], args[1:]
 	}
+	if cmd == "help" || cmd == "-h" || cmd == "--help" {
+		topic := ""
+		if len(args) > 0 {
+			topic = args[0]
+		}
+		return reportError(printHelp(os.Stdout, topic))
+	}
+	for _, arg := range args {
+		if arg == "--" {
+			break
+		}
+		if arg == "--help" || arg == "-h" {
+			return reportError(printHelp(os.Stdout, cmd))
+		}
+	}
 	fs := flag.NewFlagSet("cairn "+cmd, flag.ExitOnError)
-	fs.Usage = func() { fmt.Fprint(os.Stderr, usage) }
+	fs.Usage = func() { _ = printHelp(os.Stderr, cmd) }
 	yes := fs.Bool("y", false, "don't ask for confirmation")
 	asJSON := fs.Bool("json", false, "machine-readable output")
 	var err error
@@ -115,8 +116,15 @@ func main() {
 			version = bi.Main.Version[1:] // go install …@vX.Y.Z
 		}
 		fmt.Println("cairn " + version)
-	case "-h", "--help", "help":
-		fmt.Print(usage)
+	case "targets":
+		if len(parse(fs, args)) != 0 {
+			err = &cliError{exitNeedsYes, "usage: cairn targets [--json]"}
+		} else if *asJSON {
+			b, _ := json.MarshalIndent(storageChoices, "", "  ")
+			fmt.Println(string(b))
+		} else {
+			err = printHelp(os.Stdout, "targets")
+		}
 	case "init":
 		pw := fs.Bool("password", false, "encrypt the repo with a password")
 		var paths []string
@@ -187,14 +195,14 @@ func main() {
 		}
 	default:
 		fmt.Fprint(os.Stderr, usage)
-		os.Exit(exitNeedsYes)
+		return exitNeedsYes
 	}
-	exit(err)
+	return reportError(err)
 }
 
-func exit(err error) {
+func reportError(err error) int {
 	if err == nil {
-		return
+		return 0
 	}
 	code := 1
 	var ce *cliError
@@ -208,7 +216,7 @@ func exit(err error) {
 	if msg := err.Error(); msg != "" {
 		lipgloss.Fprintln(os.Stderr, bad.Render("✗ ")+msg)
 	}
-	os.Exit(code)
+	return code
 }
 
 func cmdInit(target string, password bool, paths []string, yes bool) error {

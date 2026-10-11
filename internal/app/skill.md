@@ -5,7 +5,7 @@ description: Back up, snapshot and restore files, folders or a whole machine wit
 
 # cairn
 
-cairn is a per-user wrapper around restic. It needs no sudo. Everything below is the full interface: you don't need any other docs.
+cairn is a per-user Linux wrapper around restic. Backups need no sudo; package recovery may ask for it. Everything below is the full interface: you don't need any other docs.
 
 **Two kinds of runs:**
 - **snapshot** (tag `snapshot`): frequent; default paths `$HOME`; default every `1h`, keep `24h,7d,4w`. Use these to get files and folders back.
@@ -34,11 +34,16 @@ cairn is a per-user wrapper around restic. It needs no sudo. Everything below is
 | `cairn set [<key> <value>] [--json]` | Change a setting, or show all settings with no args |
 | `cairn --skill` | This document |
 | `cairn --version` | Print the version |
+| `cairn targets [--json]` | Explain destination setup without connecting or changing configuration; JSON is an array of `{name, summary, setup, detail}` |
+| `cairn help [command]` / `<command> --help` | Plain-language examples and flags; works before init |
 
 **Target forms:**
 - A path (a mounted NAS from fstab, a USB disk: `/mnt/nas/cairn`). Its parent must exist.
 - An rclone remote name plus path (`gdrive:backups`). The remote must already exist: a human runs `rclone config` once.
 - Any restic URL: `sftp:user@host:/path`, `s3:...`, `b2:...`, `rest:...`.
+- SMB/NFS mounts work as local paths. Direct SMB through rclone uses `nas:share/path` after `rclone config`; Google Drive uses `gdrive:backups` and requires a user-configured Google API client ID. Other writable remotes include Dropbox, OneDrive, and WebDAV. Native restic schemes also include `azure:`, `gs:`, and `swift:`.
+- Destinations hold restic repositories. Source paths are local; mount or sync remote source data first and explicitly add mounted sources with `cairn set snapshot.paths +/mnt/data`.
+- Scheduled cloud access needs credentials available to the systemd user manager. Init warns and succeeds if scheduling is unavailable; snapshot, backup, and restore can still run manually.
 
 restic and rclone are downloaded automatically (pinned and hash-checked) into `~/.local/share/cairn/bin` if they're missing.
 
@@ -53,6 +58,8 @@ restic and rclone are downloaded automatically (pinned and hash-checked) into `~
 - An age: `30m`, `6h`, `3d`, `2w` (`m` = minutes here).
 
 cairn picks the newest snapshot at or before that moment that contains the path, and looks further back if newer ones don't have it.
+
+Relative paths such as `cairn restore notes.txt` resolve from the current directory. The file may have any extension or be deleted. `-y` skips the preview/confirmation step but keeps the in-place safety snapshot; it does not bypass restore protection. Flags work before or after the path.
 
 **`--to`:** an existing directory (the item lands inside it) or a new path (written under that name). Overwriting an existing item asks first, or needs `-y`.
 

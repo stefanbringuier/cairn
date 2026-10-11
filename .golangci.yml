@@ -6,6 +6,10 @@ linters:
     - gosec
     - bodyclose
     - misspell
+    - modernize
+    - nilerr
+    - unconvert
+    - nolintlint
   settings:
     gosec:
       excludes:
@@ -23,4 +27,12 @@ linters:
 
 formatters:
   enable:
-    - gofmt
+    - gofumpt
+    - goimports
+  settings:
+    gofumpt:
+      extra:
+        group-params: true
+    goimports:
+      local-prefixes:
+        - github.com/stefanbringuier/cairn

@@ -2,7 +2,8 @@ version: 2
 project_name: cairn
 
 builds:
-  - env: [CGO_ENABLED=0]
+  - main: ./cmd/cairn
+    env: [CGO_ENABLED=0]
     goos: [linux] # systemd user timers + flock: Linux only
     goarch: [amd64, arm64]
     flags: [-trimpath]
@@ -12,7 +13,7 @@ builds:
 archives:
   - formats: [tar.gz]
     name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}" # stable names: releases/latest/download/... works
-    files: [README.md, LICENSE]
+    files: [README.md, CONTRIBUTING.md, AGENTS.md, LICENSE, docs/*.md, docs/images/*]
 
 checksum:
   name_template: checksums.txt

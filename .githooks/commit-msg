@@ -1,0 +1,8 @@
+#!/bin/sh
+set -eu
+
+subject=$(sed -n '1p' "$1")
+if ! printf '%s\n' "$subject" | grep -Eq '^(feat|fix|perf|refactor|docs|test|build|ci|chore|style|revert)(\([a-z0-9-]+\))?!?: .+'; then
+  printf '%s\n' 'Use a Conventional Commit subject, e.g. refactor: organize the Go application.' >&2
+  exit 1
+fi

@@ -1,12 +1,14 @@
-package main
+package app
 
 import (
 	"path/filepath"
 	"slices"
+	"strings"
 	"time"
 
 	"charm.land/bubbles/v2/list"
 	"charm.land/bubbles/v2/spinner"
+	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/huh/v2"
 	"charm.land/lipgloss/v2"
@@ -21,6 +23,9 @@ const (
 	dirList
 	confirmRestore
 	settings
+	storageList
+	storageDetails
+	helpScreen
 )
 
 type item struct {
@@ -63,41 +68,41 @@ type (
 type settingsValues struct{ snapEvery, snapKeep, backEvery, backKeep string }
 
 type model struct {
-	c          Config
-	r          Restic
-	st         Status
-	loaded     bool
-	loading    bool // a full (repo) refresh is in flight; never stack them on slow remotes
-	scr        screen
-	w, h       int
-	flash      string
-	busy       string
-	spin       spinner.Model
-	list       list.Model
-	snap       Snap
-	dir        string
-	cache      map[string][]Node
-	target     Node
-	pv         preview
-	form       *huh.Form
-	fv         *settingsValues
-	ticks      int
-	wasRunning bool
-	gen        int // bumped on settings save so in-flight stale statuses are dropped
+	c           Config
+	r           Restic
+	st          Status
+	loaded      bool
+	loading     bool // a full (repo) refresh is in flight; never stack them on slow remotes
+	scr         screen
+	w, h        int
+	flash       string
+	busy        string
+	spin        spinner.Model
+	list        list.Model
+	snap        Snap
+	dir         string
+	cache       map[string][]Node
+	target      Node
+	pv          preview
+	form        *huh.Form
+	fv          *settingsValues
+	guide       viewport.Model
+	destination storageChoice
+	returnTo    screen
+	ticks       int
+	wasRunning  bool
+	gen         int // bumped on settings save so in-flight stale statuses are dropped
 }
-
-var box = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#3B4261")).Padding(1, 2)
 
 func runTUI(c Config) error {
 	r, err := newRestic(c)
 	if err != nil {
 		return err
 	}
-	l := list.New(nil, list.NewDefaultDelegate(), 0, 0)
-	l.SetShowHelp(false)
-	l.DisableQuitKeybindings()
-	m := model{c: c, r: r, cache: map[string][]Node{}, list: l, loading: true,
-		spin: spinner.New(spinner.WithSpinner(spinner.MiniDot), spinner.WithStyle(code))}
+	m := model{
+		c: c, r: r, cache: map[string][]Node{}, list: newUIList(), loading: true,
+		spin: spinner.New(spinner.WithSpinner(spinner.MiniDot), spinner.WithStyle(code)),
+	}
 	_, err = tea.NewProgram(m).Run()
 	return err
 }
@@ -129,10 +134,12 @@ func (m model) loadSnaps() tea.Cmd {
 }
 
 func (m *model) setList(title string, items []list.Item) {
+	m.list.SetDelegate(uiDelegate(m.scr != storageList))
 	m.list.Title = title
 	m.list.ResetFilter()
 	m.list.SetItems(items)
 	m.list.Select(0)
+	m.resizeList()
 }
 
 func (m model) open(dir string) (model, tea.Cmd) {
@@ -155,10 +162,10 @@ func (m model) showDir(nodes []Node) model {
 		if n.Type == "dir" {
 			title, what = title+"/", "folder"
 		}
-		items = append(items, item{title: title, desc: dim.Render(what + " · modified " + n.Mtime.Local().Format("2006-01-02 15:04")), node: n})
+		items = append(items, item{title: title, desc: what + " · modified " + n.Mtime.Local().Format("2006-01-02 15:04"), node: n})
 	}
 	m.scr = dirList
-	m.setList(m.snap.ShortID+"  "+tildify(m.dir), items)
+	m.setList(m.snap.ShortID+" · "+tildify(m.dir), items)
 	return m
 }
 
@@ -166,7 +173,7 @@ func (m model) showDir(nodes []Node) model {
 func (m model) showRoots() model {
 	var items []list.Item
 	for _, p := range m.snap.Paths {
-		items = append(items, item{title: tildify(p), desc: dim.Render("source path"), node: Node{Path: p, Type: "dir", Name: filepath.Base(p)}})
+		items = append(items, item{title: tildify(p), desc: "source path", node: Node{Path: p, Type: "dir", Name: filepath.Base(p)}})
 	}
 	m.scr, m.dir = dirList, ""
 	m.setList(m.snap.ShortID, items)
@@ -177,7 +184,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.w, m.h = msg.Width, msg.Height
-		m.list.SetSize(msg.Width-4, msg.Height-4)
+		m.resizeList()
+		if m.form != nil {
+			m.form.WithWidth(max(uiWidth(m.w)-6, 1)).WithHeight(m.settingsHeight())
+		}
+		if m.scr == helpScreen || m.scr == storageDetails {
+			m.resizeGuide()
+		}
 	case statusMsg:
 		if msg.full {
 			m.loading = false
@@ -206,11 +219,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		var items []list.Item
 		for _, s := range slices.Backward(msg.snaps) {
-			items = append(items, item{title: s.Time.Local().Format("2006-01-02 15:04") + "  " + s.kind(),
-				desc: dim.Render(s.ShortID + " · " + ago(s.Time) + " · " + tildifyAll(s.Paths)), snap: s})
+			items = append(items, item{
+				title: s.Time.Local().Format("2006-01-02 15:04") + "  " + s.kind(),
+				desc:  s.ShortID + " · " + ago(s.Time) + " · " + tildifyAll(s.Paths), snap: s,
+			})
 		}
 		m.scr = snapList
-		m.setList("Pick a snapshot", items)
+		m.setList("Saved versions", items)
 	case lsMsg:
 		m.busy = ""
 		if msg.err != nil {
@@ -239,6 +254,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyPressMsg:
 		if msg.String() == "ctrl+c" {
 			return m, tea.Quit
+		}
+		if msg.String() == "?" && m.scr != settings && m.scr != helpScreen && m.list.FilterState() != list.Filtering {
+			return m.showGuide(helpScreen), nil
 		}
 		switch m.scr {
 		case dash:
@@ -271,6 +289,34 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.scr = dash
 				return m, nil
 			}
+		case storageList:
+			if m.list.FilterState() != list.Filtering {
+				switch msg.String() {
+				case "esc", "q":
+					if !m.list.IsFiltered() {
+						m.scr = dash
+						return m, nil
+					}
+				case "enter":
+					if s, ok := m.list.SelectedItem().(storageChoice); ok {
+						m.destination = s
+						return m.showGuide(storageDetails), nil
+					}
+				}
+			}
+		case storageDetails, helpScreen:
+			if msg.String() == "esc" || msg.String() == "q" || (msg.String() == "?" && m.scr == helpScreen) {
+				if m.scr == storageDetails {
+					m.scr = storageList
+				} else {
+					m.scr = m.returnTo
+					if m.scr == storageDetails {
+						m.resizeGuide()
+					}
+				}
+				m.resizeList()
+				return m, nil
+			}
 		}
 	}
 	if m.scr == settings && m.form != nil {
@@ -286,7 +332,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, cmd
 	}
-	if m.scr == snapList || m.scr == dirList {
+	if m.scr == helpScreen || m.scr == storageDetails {
+		var cmd tea.Cmd
+		m.guide, cmd = m.guide.Update(msg)
+		return m, cmd
+	}
+	if m.scr == snapList || m.scr == dirList || m.scr == storageList {
 		var cmd tea.Cmd
 		m.list, cmd = m.list.Update(msg)
 		return m, cmd
@@ -309,15 +360,19 @@ func (m model) dashKey(k string) (tea.Model, tea.Cmd) {
 	case "r":
 		m.busy, m.flash = "loading snapshots", ""
 		return m, m.loadSnaps()
+	case "t":
+		return m.showTargets(), nil
 	case "e":
+		m.flash = ""
 		m.fv = &settingsValues{m.c.Snapshot.Every, m.c.Snapshot.Keep, m.c.Backup.Every, m.c.Backup.Keep}
 		keepOK := func(s string) error { _, err := keepFlags(s); return err }
 		m.form = huh.NewForm(huh.NewGroup(
-			huh.NewSelect[string]().Title("Snapshot every").Options(huh.NewOptions(everyChoices...)...).Value(&m.fv.snapEvery),
-			huh.NewInput().Title("Keep snapshots").Description("e.g. 24h,7d,4w (a bare number keeps the last N)").Value(&m.fv.snapKeep).Validate(keepOK),
-			huh.NewSelect[string]().Title("Backup every").Options(huh.NewOptions(everyChoices...)...).Value(&m.fv.backEvery),
-			huh.NewInput().Title("Keep backups").Description("e.g. 7d,4w,12m").Value(&m.fv.backKeep).Validate(keepOK),
-		)).WithWidth(min(60, max(m.w-8, 30)))
+			huh.NewSelect[string]().Title("Snapshot every").Inline(true).Options(huh.NewOptions(everyChoices...)...).Value(&m.fv.snapEvery),
+			huh.NewInput().Title("Keep snapshots").Description("Hourly, daily, weekly · e.g. 24h,7d,4w").Value(&m.fv.snapKeep).Validate(keepOK),
+			huh.NewSelect[string]().Title("Backup every").Inline(true).Options(huh.NewOptions(everyChoices...)...).Value(&m.fv.backEvery),
+			huh.NewInput().Title("Keep backups").Description("Daily, weekly, monthly · e.g. 7d,4w,12m").Value(&m.fv.backKeep).Validate(keepOK),
+		)).WithTheme(huh.ThemeFunc(settingsTheme)).WithShowHelp(false).
+			WithWidth(max(uiWidth(m.w)-6, 1)).WithHeight(m.settingsHeight())
 		m.scr = settings
 		return m, m.form.Init()
 	}
@@ -391,31 +446,47 @@ func (m *model) saveSettings() string {
 
 func (m model) View() tea.View {
 	var body string
-	fit := lipgloss.NewStyle().MaxWidth(max(m.w-6, 20)) // long target paths: truncate, don't break the box
-	help := "s snapshot now · b backup now · r restore · e settings · q quit"
+	width := uiWidth(m.w)
+	section := "dashboard"
+	keys := uiKeyPairs(m.scr)
 	switch m.scr {
 	case dash:
 		body = dim.Render("loading…")
 		if m.loaded {
-			body = renderStatus(m.st)
+			available := m.h - 7 - lipgloss.Height(uiKeys(width, keys...))
+			if m.flash != "" || m.busy != "" {
+				available--
+			}
+			body = renderDashboard(m.st, width, available)
 		}
-		body = box.Render(fit.Render(body))
 	case snapList, dirList:
-		body = m.list.View()
-		help = "enter open · ← back · r restore in place · / filter · esc dashboard"
+		section = "restore"
+		body = panel.Padding(0, 1).Width(width).Render(m.list.View())
 	case confirmRestore:
-		head := accent.Render("Restore " + tildify(m.target.Path) + " from " + m.snap.ShortID + " (" + ago(m.snap.Time) + ")?")
-		body = box.Render(fit.Render(lipgloss.JoinVertical(lipgloss.Left, append([]string{head, ""}, m.pv.lines()...)...)))
-		help = "y restore · n cancel"
+		section, body = "restore / preview", m.restorePreview(width)
 	case settings:
-		body = box.Render(m.form.View())
-		help = "enter next · esc cancel"
+		section = "settings"
+		body = panel.Padding(1, 2).Width(width).Render(m.form.View())
+	case storageList:
+		section = "storage guide"
+		body = panel.Padding(0, 1).Width(width).Render(m.list.View())
+	case storageDetails, helpScreen:
+		section = "help"
+		if m.scr == storageDetails {
+			section = "storage / setup"
+		}
+		body = panel.Padding(1, 2).Width(width).Render(m.guide.View())
 	}
 	status := m.flash
 	if m.busy != "" {
 		status = m.spin.View() + " " + dim.Render(m.busy)
 	}
-	v := tea.NewView(lipgloss.JoinVertical(lipgloss.Left, body, status, dim.Render(help)))
+	parts := []string{uiHeader(section, m.c.Host, width), "", body}
+	if status != "" {
+		parts = append(parts, trimUI(status, width))
+	}
+	parts = append(parts, "", uiKeys(width, keys...))
+	v := tea.NewView(lipgloss.NewStyle().Padding(1, 2).Render(strings.Join(parts, "\n")))
 	v.AltScreen = true
 	v.WindowTitle = "cairn"
 	return v

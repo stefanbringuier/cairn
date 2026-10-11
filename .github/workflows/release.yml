@@ -1,10 +1,18 @@
 name: release
 
-# Every push to main (a merged PR) cuts a release if its commits ask for one:
+# Successful main CI cuts a release if its commits ask for one:
 # fix → patch, feat → minor, feat!/fix!/BREAKING CHANGE → major; docs/chore/ci/... → nothing.
 on:
-  push:
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing vX.Y.Z tag to retry publishing
+        required: true
+        type: string
 
 permissions: {}
 
@@ -14,6 +22,7 @@ concurrency:
 
 jobs:
   release:
+    if: (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: ubuntu-latest
     permissions:
       contents: write # push the tag, publish the release
@@ -23,20 +32,56 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0 # svu reads every tag and commit since the last one
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-      - run: go test ./...
+      - name: Validate release commit or retry tag
+        id: commit
+        env:
+          RETRY_TAG: ${{ inputs.tag }}
+        run: |
+          if [ -n "$RETRY_TAG" ]; then
+            if ! [[ "$RETRY_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "::error::Use an existing vX.Y.Z release tag"; exit 1
+            fi
+            git checkout --detach "refs/tags/$RETRY_TAG"
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            git fetch origin main
+            if [ "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" ]; then
+              echo "ready=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "Skipping obsolete CI result; main has advanced."
+            fi
+          fi
+      - name: Verify retry code before publication
+        if: steps.commit.outputs.ready && github.event_name == 'workflow_dispatch'
+        run: |
+          if [ -f Makefile ]; then
+            make tools check vet
+          else
+            # Older release tags predate the development Makefile.
+            go test -race ./...
+            go vet ./...
+            go mod tidy -diff
+          fi
       - name: next version
         id: version
+        if: steps.commit.outputs.ready
+        env:
+          RETRY_TAG: ${{ inputs.tag }}
         run: |
+          if [ -n "$RETRY_TAG" ]; then
+            echo "tag=$RETRY_TAG" >> "$GITHUB_OUTPUT"; exit 0
+          fi
           go install github.com/caarlos0/svu/v3@v3.4.1
           current="$(git describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null || echo none)"
           next="$("$(go env GOPATH)/bin/svu" next)"
           echo "current=$current next=$next"
           if [ "$next" != "$current" ] && [ "$next" != "v0.0.0" ]; then echo "tag=$next" >> "$GITHUB_OUTPUT"; fi
       - name: tag
-        if: steps.version.outputs.tag
+        if: steps.version.outputs.tag && github.event_name != 'workflow_dispatch'
         env:
           TAG: ${{ steps.version.outputs.tag }}
         run: | # lightweight tag: no tagger identity, nothing committed to main

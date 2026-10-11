@@ -1,0 +1,18 @@
+#!/bin/sh
+set -eu
+
+root=$(git rev-parse --show-toplevel)
+cd "$root"
+git diff --cached --check
+
+lint="$root/.cache/bin/golangci-lint"
+if [ ! -x "$lint" ]; then
+  printf '%s\n' 'Run make tools before committing to install the pinned formatter and linter.' >&2
+  exit 1
+fi
+
+# Validate the staged tree, including partially staged files, without modifying it.
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT HUP INT TERM
+git checkout-index --all --prefix="$tmp/"
+GOFLAGS="${GOFLAGS:+$GOFLAGS }-buildvcs=false" make -C "$tmp" check GOLANGCI_LINT="$lint"

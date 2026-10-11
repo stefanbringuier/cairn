@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="280" viewBox="0 0 1200 280" role="img" aria-labelledby="title desc">
+  <title id="title">cairn</title>
+  <desc id="desc">A stack of golden stones beside the cairn wordmark. A way back to your files, with restic as your trail.</desc>
+  <defs>
+    <linearGradient id="background" x2="1" y2="1">
+      <stop stop-color="#1a1b26"/>
+      <stop offset="1" stop-color="#10131d"/>
+    </linearGradient>
+    <linearGradient id="stone" x2="0.8" y2="1">
+      <stop stop-color="#f4d398"/>
+      <stop offset="1" stop-color="#c99550"/>
+    </linearGradient>
+    <radialGradient id="glow">
+      <stop stop-color="#e0af68" stop-opacity=".12"/>
+      <stop offset="1" stop-color="#e0af68" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1200" height="280" rx="20" fill="url(#background)"/>
+  <ellipse cx="340" cy="140" rx="310" ry="220" fill="url(#glow)"/>
+  <g fill="url(#stone)">
+    <path d="M191 211c-18-3-19-14-7-24 18-14 109-16 130-1 14 10 7 23-8 25-30 4-87 4-115 0Z"/>
+    <path d="M199 177c-12-4-13-16-1-24 16-12 77-15 96-2 11 8 9 21-3 25-21 5-68 6-92 1Z" opacity=".9"/>
+    <path d="M215 141c-14-4-14-15-5-23 12-11 54-13 66-3 12 9 6 21-3 25-13 5-43 6-58 1Z" opacity=".8"/>
+    <path d="M228 105c-9-4-9-15-2-23 6-8 19-10 29-5 12 7 16 19 7 25-8 5-24 7-34 3Z" opacity=".7"/>
+  </g>
+  <text x="365" y="170" fill="#e0af68" font-family="Verdana, sans-serif" font-size="100" font-weight="700" letter-spacing="-5">cairn</text>
+  <text x="372" y="207" fill="#a9b1cc" font-family="Verdana, sans-serif" font-size="21" letter-spacing="2">A WAY BACK TO YOUR FILES</text>
+  <text x="374" y="238" fill="#7f8c98" font-family="Verdana, sans-serif" font-size="16" letter-spacing="1">with restic as your trail</text>
+  <path d="M855 206c40 0 35-42 75-42s35 42 75 42" fill="none" stroke="#3b4261" stroke-width="2" stroke-dasharray="4 5"/>
+  <circle cx="855" cy="206" r="4" fill="#e0af68"/>
+  <circle cx="1005" cy="206" r="4" fill="#9ece6a"/>
+</svg>

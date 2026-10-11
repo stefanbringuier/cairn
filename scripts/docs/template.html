@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="A way back to your files, with restic as your trail. Simple Linux snapshots and backups, from disks to cloud storage.">
+  <title>{{ title }} · cairn</title>
+  <link rel="icon" href="images/logo.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="assets/style.css">
+  <script src="assets/search.js" defer></script>
+</head>
+<body>
+  <a class="skip" href="#content">Skip to content</a>
+  <header>
+    <a class="brand" href="index.html"><img src="images/logo.svg" alt="" width="32" height="40"><strong>cairn</strong><span>a way back</span></a>
+    <a class="github" href="https://github.com/stefanbringuier/cairn">GitHub ↗</a>
+  </header>
+  <div class="layout">
+    <aside class="sidebar">
+      <label for="search">Find your way</label>
+      <input id="search" type="search" placeholder="Search the docs…" autocomplete="off">
+      <div id="results" aria-live="polite" hidden></div>
+      <nav aria-label="Documentation">{{ nav }}</nav>
+      <p class="aside-note">Small commands.<br>Useful defaults.<br>A trail back to your files.</p>
+    </aside>
+    <main id="content" tabindex="-1">
+      <article>{{ body }}</article>
+      <footer>
+        <a href="{{ source }}">Read or improve this page on GitHub ↗</a>
+        <p>Developed independently in my own time, with my own resources and without employer resources.</p>
+      </footer>
+    </main>
+    <aside class="on-page" aria-label="On this page"><span>On this page</span>{{ toc }}</aside>
+  </div>
+</body>
+</html>

@@ -1,3 +1,12 @@
-docs/
 /cairn
-dist/
+/bin/
+/.cache/
+/dist/
+node_modules/
+/site/
+__pycache__/
+# Keep agent-specific editor state out of the project; AGENTS.md is shared.
+.cursor/
+.codex/
+.claude/
+.agents/

@@ -1,4 +1,4 @@
-package main
+package app
 
 import (
 	"bufio"
@@ -87,8 +87,7 @@ func (e *resticError) Error() string {
 }
 
 func exitCode(err error) int {
-	var ee *exec.ExitError
-	if errors.As(err, &ee) {
+	if ee, ok := errors.AsType[*exec.ExitError](err); ok {
 		return ee.ExitCode()
 	}
 	return 1

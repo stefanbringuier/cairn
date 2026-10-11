@@ -1,4 +1,4 @@
-package main
+package app
 
 import (
 	"encoding/json"
@@ -82,7 +82,7 @@ func readNames(m manager) []string {
 		return nil
 	}
 	var names []string
-	for _, n := range strings.Fields(string(b)) {
+	for n := range strings.FieldsSeq(string(b)) {
 		if validName.MatchString(n) && (m.slash || !strings.Contains(n, "/")) {
 			names = append(names, n)
 		} else {
@@ -219,7 +219,7 @@ func cmdRebuild(c Config, host, from string, yes bool) error {
 				return nil, "apt-cache returned no package names"
 			}
 			avail := map[string]bool{}
-			for _, n := range strings.Fields(string(out)) {
+			for n := range strings.FieldsSeq(string(out)) {
 				avail[n] = true
 			}
 			keep := slices.DeleteFunc(slices.Clone(names), func(n string) bool { return !avail[strings.Split(n, ":")[0]] })
