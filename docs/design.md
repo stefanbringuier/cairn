@@ -30,6 +30,10 @@ profiles use `profiles/NAME` beneath the same config and state roots. Selection
 is never persisted. The TUI, restic password, settings, status, manifests,
 progress, pruning marker, rebuild scratch and printed commands all use that
 selection. Dependency binaries remain shared.
+Each profile also selects machine or data-only scope. Data-only exclusions cover
+all default/named manifests and orphaned state, preventing recipes from another
+profile leaking into a HOME source. Rclone accounts and definitions remain in
+normal shared rclone configuration; profile selection does not isolate them.
 
 Timers use `cairn-NAME-{snapshot,backup}` for named profiles and the original
 unit names for default. Their ExecStart explicitly selects the profile and
@@ -57,12 +61,34 @@ passwords and configurations remain intact. Reinitializing a profile retains
 settings, warns and confirms repository changes, and leaves its old snapshots
 in the old repository. These guards remain accident prevention, not permissions.
 
+`cairn cloud setup` is a fixed `rclone config` invocation with inherited terminal
+streams. It reuses `tool("rclone")` so first-time setup can download the pinned,
+checksum-checked binary before any repository is connected. It accepts no
+pass-through arguments and never changes cairn settings or timers. Rclone owns
+its configuration, browser flow, credentials, and configuration environment.
+Initialization checks configured remotes for shorthand and explicit rclone
+targets. Failed cloud connections report setup guidance without backend error
+text that could contain credentials. Configuration and scheduling begin only
+after a successful connection; any new password is removed on earlier failure.
+
 ## Extend a command
 
 Write its expected behavior in [spec.md](spec.md) first. Add dispatch and
 command-specific help, keep JSON output structured, and define exit codes.
 Use a small function that returns an error; the executable owns termination.
 Add focused tests and update [usage.md](usage.md) and the agent reference.
+
+Backup scope is persisted in `Config.BackupScope`, defaulting legacy configs to
+machine scope. Init owns scope changes and requires explicit sources when
+switching an existing configuration. Path edits never infer scope. Data-only
+runs skip manifest collection and exclude cairn's manifest directory,
+including stale recipes contained in a source. They retain the normal restic
+job tags and add `data-only`; rebuild rejects data-only configurations and
+filters that tag from both recipe and home selection after reconnecting.
+Rebuild stages explicitly recorded manifests from its chosen machine backup
+in a fresh scratch directory, even for sources under the old home. Package and
+crontab steps read only that directory; export failure aborts those steps, and
+stale live manifests cannot supplement missing managers in the chosen recipe.
 
 Relative file paths resolve against the current working directory. A deleted
 file does not have to exist for restoration. `-y` accepts confirmation but

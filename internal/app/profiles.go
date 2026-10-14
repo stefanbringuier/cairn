@@ -202,10 +202,11 @@ type profileTimer struct {
 }
 
 type profileInfo struct {
-	Name     string       `json:"name"`
-	Target   string       `json:"target"`
-	Snapshot profileTimer `json:"snapshot"`
-	Backup   profileTimer `json:"backup"`
+	Name        string       `json:"name"`
+	Target      string       `json:"target"`
+	BackupScope string       `json:"backup_scope"`
+	Snapshot    profileTimer `json:"snapshot"`
+	Backup      profileTimer `json:"backup"`
 }
 
 func timerEnabled(timer string) *bool {
@@ -240,7 +241,7 @@ func cmdProfiles(asJSON bool) error {
 		}
 		snapshot, backup := unit+"snapshot.timer", unit+"backup.timer"
 		infos = append(infos, profileInfo{
-			Name: name, Target: redact(c.Target),
+			Name: name, Target: redact(c.Target), BackupScope: c.backupScope(),
 			Snapshot: profileTimer{c.Snapshot.Every, snapshot, timerEnabled(snapshot)},
 			Backup:   profileTimer{c.Backup.Every, backup, timerEnabled(backup)},
 		})
@@ -254,7 +255,7 @@ func cmdProfiles(asJSON bool) error {
 		fmt.Println("No profiles yet: run cairn init <target>")
 	}
 	for _, info := range infos {
-		fmt.Printf("%s  %s\n", info.Name, clean(info.Target))
+		fmt.Printf("%s  %s  %s\n", info.Name, info.BackupScope, clean(info.Target))
 		for _, entry := range []profileTimer{info.Snapshot, info.Backup} {
 			state := "unknown (systemd unavailable)"
 			if entry.Enabled != nil {

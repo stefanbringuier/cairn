@@ -107,6 +107,22 @@ func TestDashboardFitsTerminalWidth(t *testing.T) {
 	}
 }
 
+func TestDataOnlyScopeVisibleInDashboardAndSettings(t *testing.T) {
+	c := defaultConfig()
+	c.BackupScope = scopeDataOnly
+	settings := ansi.Strip(renderSettings(c))
+	if !strings.Contains(settings, "backup.scope") || !strings.Contains(settings, "data-only") {
+		t.Fatalf("scope absent from settings: %s", settings)
+	}
+	st := Status{BackupScope: scopeDataOnly, Online: true, Scheduler: true}
+	for _, width := range []int{40, 60, 80, 110} {
+		view := renderDashboard(st, uiWidth(width), 24)
+		if lipgloss.Width(view) > width-4 || !strings.Contains(ansi.Strip(view), "DATA BACKUPS") {
+			t.Fatalf("scope absent or overflows %d columns: %s", width, ansi.Strip(view))
+		}
+	}
+}
+
 func TestTUIKeepsControlsVisible(t *testing.T) {
 	now := time.Now()
 	job := JobStatus{Every: "daily", Keep: "7d,4w,12m", Count: 21, Last: &now, Next: &now, LastID: "1234abcd"}

@@ -128,7 +128,7 @@ func TestProfilesRejectInvalidConfigurationsAndSymlinks(t *testing.T) {
 		if err := os.WriteFile(configFile(), []byte(contents), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		if err := cmdInit(filepath.Join(root, "new"), false, nil, true); err == nil {
+		if err := cmdInit(filepath.Join(root, "new"), false, nil, true, nil); err == nil {
 			t.Fatal("init replaced an invalid config")
 		}
 		got, _ := os.ReadFile(configFile())
@@ -316,7 +316,7 @@ func TestFailedProfileInitRollsBackNewPassword(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin+":"+os.Getenv("PATH"))
-	if err := cmdInit(filepath.Join(root, "new"), true, nil, true); err == nil {
+	if err := cmdInit(filepath.Join(root, "new"), true, nil, true, nil); err == nil {
 		t.Fatal("failed repository access succeeded")
 	}
 	if _, err := os.Stat(passwordFile()); !os.IsNotExist(err) {
@@ -329,7 +329,7 @@ func TestFailedProfileInitRollsBackNewPassword(t *testing.T) {
 	if err := os.WriteFile(passwordFile(), []byte("keep existing"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := cmdInit(c.Repo, true, nil, true); err == nil {
+	if err := cmdInit(c.Repo, true, nil, true, nil); err == nil {
 		t.Fatal("failed connection succeeded")
 	}
 	password, _ := os.ReadFile(passwordFile())
@@ -420,5 +420,53 @@ esac
 	_, _, err = resolve(r, Config{Host: "fixture"}, "/notes.txt", "latest")
 	if err == nil || !strings.Contains(err.Error(), "cairn --profile nas history") {
 		t.Fatalf("history hint loses selection: %v", err)
+	}
+}
+
+func TestDataOnlyExcludesAllProfileRecipes(t *testing.T) {
+	root := profileFixture(t)
+	t.Setenv("XDG_STATE_HOME", filepath.Join(root, "home/.local/state[old]"))
+	saveFixtureProfile(t, "default", filepath.Join(root, "legacy"))
+	saveFixtureProfile(t, "nas", filepath.Join(root, "nas"))
+	c := saveFixtureProfile(t, "cloud", filepath.Join(root, "cloud"))
+	selectedProfile = "cloud"
+	c.BackupScope = scopeDataOnly
+	args, err := c.excludeArgs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"default", "nas", "cloud"} {
+		manifest := globEscape(filepath.Join(profileDir(stateRoot(), name), "manifests"))
+		if !slices.Contains(args, manifest) {
+			t.Errorf("included %s machine recipe", name)
+		}
+	}
+	if !slices.Contains(args, globEscape(filepath.Join(stateRoot(), "profiles"))+"/*/manifests") {
+		t.Fatal("unconfigured stale profile recipes can enter HOME backups")
+	}
+	shared := dataDir()
+	selectedProfile = "default"
+	if dataDir() != shared {
+		t.Fatal("dependency binaries became profile-specific")
+	}
+	selectedProfile = "cloud"
+	c.BackupScope = scopeMachine
+	args, err = c.excludeArgs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if slices.Contains(args, globEscape(filepath.Join(profileDir(stateRoot(), "nas"), "manifests"))) {
+		t.Fatal("machine profile cannot retain saved recipes")
+	}
+}
+
+func TestNamedMissingRemoteGuidance(t *testing.T) {
+	profileFixture(t)
+	dir := cloudFixture(t)
+	selectedProfile = "cloud"
+	cloudTool(t, dir, "rclone", "printf 'different:\\n'\n")
+	_, err := repoFor("missing:backups")
+	if err == nil || !strings.Contains(err.Error(), "cairn --profile cloud cloud setup") || !strings.Contains(err.Error(), "cairn --profile cloud init") {
+		t.Fatalf("missing remote hint loses profile: %v", err)
 	}
 }

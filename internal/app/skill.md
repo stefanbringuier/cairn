@@ -11,6 +11,32 @@ cairn is a per-user Linux wrapper around restic. Backups need no sudo; package r
 - **snapshot** (tag `snapshot`): frequent; default paths `$HOME`; default every `1h`, keep `24h,7d,4w`. Use these to get files and folders back.
 - **backup** (tag `backup`): a full rebuild recipe: `$HOME`, `/etc`, `/usr/share/keyrings`, plus package manifests (apt, snap, flatpak, brew, uv tools, pipx, cargo, npm -g, crontab). Default every `daily`, keep `7d,4w,12m`. Use these to rebuild a machine on a new disk or filesystem.
 
+**Data-only scope:** `cairn init /mnt/backup/data --data-only --path ~/Projects`
+sets both jobs to exactly the repeated `--path` sources; omitted paths default
+to `$HOME`. No system paths are added, no package/crontab manifests are generated,
+and cairn's existing manifest directory is excluded from both jobs even beneath
+a source. Normal cache exclusions, retention, schedules, and restore safety
+apply. Data-only backups carry both `backup` and `data-only` tags; snapshots
+keep the `snapshot` tag. `rebuild` refuses a data-only configuration before
+repository access and ignores tagged data-only backups in machine scope. Use
+`history`, `recover`, or approved `restore` for data-only saved files.
+
+Without `--data-only`, a new setup uses machine scope. `--path` alone replaces
+snapshot paths and sets backup paths to those sources plus `/etc` and
+`/usr/share/keyrings`; package manifests are still included. Reinitialization
+without a scope flag preserves scope and other settings. Repeated `--path`
+replaces both jobs' paths according to the preserved scope. Changing an existing
+scope requires the explicit complete source list: `init <target> --data-only
+--path P` or `init <target> --data-only=false --path P`. Both preserve frequencies,
+retention, excludes, and old saved versions. Paths edited with `set` never
+change scope. Settings and status JSON include `backup_scope` (`machine` or
+`data-only`); a legacy missing field means `machine`. Rendered settings show
+`backup.scope`, which is read-only through `set`.
+Machine rebuild stages package/crontab manifests from its selected backup in
+a fresh directory, including sources under the old home. Newer home snapshots
+and live manifests cannot supplement the recipe. If its export fails, no
+package installation starts.
+
 **Generated stuff is skipped:** `.venv`, `node_modules`, `__pycache__`, `.cache`, package-manager stores, trash, container storage, and any directory with a `CACHEDIR.TAG`. Dotfiles and lockfiles are kept, so the environment can be regenerated.
 
 ## Rules for agents
@@ -27,11 +53,11 @@ cairn is a per-user Linux wrapper around restic. Backups need no sudo; package r
 | Command | Does |
 |---|---|
 | `cairn` | TUI dashboard if a TTY, else the same as `cairn status` |
-| `cairn init <target> [--password] [--path P]... [-y]` | Create the repo or connect to an existing one; write the config; install the systemd user timers; start the first snapshot in the background. Re-running it keeps settings and the password; changing a configured repository needs confirmation or authorized `-y`. A local target on the same disk as `$HOME` (e.g. an unmounted NAS mount point) also needs confirmation or `-y` |
+| `cairn init <target> [--password] [--data-only] [--path P]... [-y]` | Create the repo or connect to an existing one; write the config; install the systemd user timers; start the first snapshot in the background. Re-running it keeps scope, settings and the password; changing a configured repository needs confirmation or authorized `-y`. A local target on the same disk as `$HOME` (e.g. an unmounted NAS mount point) also needs confirmation or `-y` |
 | `cairn status [--json]` | Target online/offline; for snapshot and backup: every, keep, paths, count, last (time + id), next run, result of the last timer run (`ok`/`partial`/`failed`), running + percent, stale (overdue). Exits 10 when offline |
 | `cairn profiles [--json]` | List all configured profiles, targets, job frequencies, timer names and actual enabled states |
 | `cairn snapshot` | Run a snapshot now (blocks; prints a summary) |
-| `cairn backup` | Run a full backup now |
+| `cairn backup` | Run a machine or data-only backup now, according to configured scope |
 | `cairn restore <path> [--at A] [--to T] [-y]` | Restore a file or folder |
 | `cairn history <path> [--json]` | Versions of a path: `[{snapshot, kind, time, size, mtime}]`, newest first (size/mtime only for files; `[]` if none) |
 | `cairn diff <from> [<to>] [--path P] [--metadata] [--json]` | Compare saved snapshots; `to` defaults to latest. Selectors accept the same forms as `--at`. Does not compare live files. Refuses incomplete comparisons |
@@ -41,6 +67,7 @@ cairn is a per-user Linux wrapper around restic. Backups need no sudo; package r
 | `cairn --skill` | This document |
 | `cairn --version` | Print the version |
 | `cairn targets [--json]` | Explain destination setup without connecting or changing configuration; JSON is an array of `{name, summary, setup, detail}` |
+| `cairn cloud setup` | Open rclone's remote configuration wizard; use a system binary or obtain the pinned, hash-checked binary first. No extra arguments or flags; no cairn repository or timer changes |
 | `cairn help [command]` / `<command> --help` | Plain-language examples and flags; works before init |
 
 ## Named profiles and selection
@@ -61,10 +88,11 @@ leaves the others configured and scheduled. Example setup (requires authorized
 configuration changes and an already mounted NAS/configured rclone remote):
 
 ```sh
+cairn cloud setup
 cairn --profile nas init /mnt/nas/cairn --password
-cairn --profile cloud init gdrive:backups --path ~/Projects --password
+cairn --profile cloud init gdrive:backups --data-only --path ~/Projects --password
 cairn --profile cloud set snapshot.every 6h
-cairn --profile cloud set backup.every off
+cairn --profile cloud set backup.every daily
 cairn profiles --json
 cairn --profile nas status --json
 cairn --profile cloud snapshot
@@ -75,6 +103,12 @@ cairn --profile cloud recover ~/Projects/notes.md --at <snapshot> --json
 cairn --profile cloud restore --at <approved-snapshot> -y -- ~/Projects/notes.md
 cairn --profile nas rebuild
 ```
+
+The NAS profile uses machine scope and includes system folders and a rebuild
+recipe. The cloud profile uses data-only scope for Projects and adds no system
+folders or package lists. Its schedules and retention are independent of NAS.
+Data-only jobs exclude every profile's saved manifests, including stale state
+without a current configuration, even when a source is the entire home.
 
 The restore example requires explicit authorization for the version and
 destination. Recovery still refuses existing destinations. Rebuild needs
@@ -96,7 +130,11 @@ mode 600 before running `cairn --profile nas init /mnt/nas/cairn --password`.
 Do not put passwords in command arguments, logs, or agent-visible responses.
 With custom XDG roots, use the configured root rather than the example home path.
 Scheduled services explicitly select their profile and preserve absolute XDG
-config/state/data/cache roots plus PATH. Unsafe characters in those roots stop
+config/state/data/cache roots plus PATH. Rclone remote definitions and provider
+authentication remain shared in normal rclone configuration (`RCLONE_CONFIG`
+or its XDG default), even for `cairn --profile NAME cloud setup`. Only cairn
+config/state and restic password files are per profile; a profile does not create
+a separate rclone account. Unsafe characters in those roots stop
 schedule installation; init warns and manual runs remain available. Credentials
 for cloud providers/rclone still need to be available to the systemd user manager.
 
@@ -108,6 +146,7 @@ Named timers are `cairn-NAME-snapshot.timer` and `cairn-NAME-backup.timer`.
   {
     "name": "nas",
     "target": "/mnt/nas/cairn",
+    "backup_scope": "machine",
     "snapshot": {"every": "1h", "timer": "cairn-nas-snapshot.timer", "enabled": true},
     "backup": {"every": "daily", "timer": "cairn-nas-backup.timer", "enabled": true}
   }
@@ -151,13 +190,36 @@ authorization and must not discard subsequent edits.
 
 **Target forms:**
 - A path (a mounted NAS from fstab, a USB disk: `/mnt/nas/cairn`). Its parent must exist.
-- An rclone remote name plus path (`gdrive:backups`). The remote must already exist: a human runs `rclone config` once.
+- An rclone remote name plus path (`gdrive:backups` or `rclone:gdrive:backups`). The remote must already exist: a human runs `cairn cloud setup` first and completes rclone's authentication.
 - Any restic URL: `sftp:user@host:/path`, `s3:...`, `b2:...`, `rest:...`.
-- SMB/NFS mounts work as local paths. Direct SMB through rclone uses `nas:share/path` after `rclone config`; Google Drive uses `gdrive:backups` and requires a user-configured Google API client ID. Other writable remotes include Dropbox, OneDrive, and WebDAV. Native restic schemes also include `azure:`, `gs:`, and `swift:`.
+- SMB/NFS mounts work as local paths. Direct SMB through rclone uses `nas:share/path` after `cairn cloud setup`; Google Drive uses `gdrive:backups` and requires a user-configured Google API client ID. Other writable remotes include Dropbox, OneDrive, and WebDAV. Native restic schemes also include `azure:`, `gs:`, and `swift:`.
 - Destinations hold restic repositories. Source paths are local; mount or sync remote source data first and explicitly add mounted sources with `cairn set snapshot.paths +/mnt/data`.
 - Scheduled cloud access needs credentials available to the systemd user manager. Init warns and succeeds if scheduling is unavailable; snapshot, backup, and restore can still run manually.
 
-restic and rclone are downloaded automatically (pinned and hash-checked) into `~/.local/share/cairn/bin` if they're missing.
+restic and rclone are downloaded automatically (pinned and hash-checked) into
+`${XDG_DATA_HOME:-$HOME/.local/share}/cairn/bin` if they're missing. Cloud setup
+works before init and runs the downloaded rclone directly; PATH changes are not
+needed. It runs only `rclone config`, inherits terminal streams and rclone's
+normal configuration environment (including `RCLONE_CONFIG`), and leaves
+authentication to the human and rclone. It changes rclone's configuration, so
+obtain authorization for setup and let the human complete browser/provider
+authentication. It has no JSON mode or `-y`; failures exit 1, bad arguments 2.
+
+First-time setup example (not a connected cloud account):
+```sh
+cairn cloud setup                     # human creates a remote named gdrive
+cairn init gdrive:backups --password   # only after authentication and init approval
+```
+To run the private binary directly after its download:
+```sh
+"${XDG_DATA_HOME:-$HOME/.local/share}/cairn/bin/rclone" config
+```
+Missing/unconfigured remotes and failed cloud connections give guidance to run
+cloud setup without exposing backend credentials. Failed init preserves current
+cairn settings, timers, and any existing repository password; a newly generated
+password is removed. Scheduled runs still need unattended credentials available
+to the systemd user manager; shell-only exports do not reach timers. Setup does
+not prove provider authentication or scheduled connectivity.
 
 **Passwords:** repos have no password by default (anyone who can read the target can read the data).
 - `--password` makes cairn prompt for one, or generate one (without a TTY it's generated, and the path to it is printed).

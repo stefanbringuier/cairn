@@ -23,11 +23,44 @@ cairn is a thin CLI + TUI over restic. restic stores the data, systemd user time
 - **Excludes**: a built-in list of regenerable directories (venvs, caches, package stores, trash, container storage), plus `--exclude-caches --one-file-system`, user extras, every configured local repository, and every profile's rebuild scratch directory. Dotfiles and lockfiles are always kept.
 - **pre-restore**: before replacing an existing destination, including `restore --to`, cairn snapshots its current contents (tag `pre-restore`) and keeps those snapshots for 30 days.
 
+### Backup scope
+
+`init --data-only` selects data-only scope. Both jobs initially use exactly the
+repeated `--path` sources, or `$HOME` when none are given. No system folders are
+added, no rebuild manifests are generated, and cairn's manifest directory is
+excluded from both jobs even if old manifests are beneath a source. Normal
+excludes, schedules, retention, host filtering, and restore safety still apply.
+Explicitly chosen system folders remain valid data sources. Data-only backups
+carry both `backup` and `data-only` tags.
+
+The configuration persists `backup_scope` as `machine` or `data-only`; older
+configurations without it mean `machine`. Settings and status JSON expose it;
+rendered settings and the dashboard explain the scope. It is not a `set` key.
+Removing system paths with `set backup.paths` does not change machine scope or
+stop manifests; changing paths in data-only scope does not add system paths.
+
+Reinitialization without `--data-only` preserves scope and other settings.
+Supplying `--path` replaces both job source lists, adding `/etc` and
+`/usr/share/keyrings` only in machine scope. Explicitly changing an existing
+scope requires at least one `--path` to avoid silently adopting an old source
+list. `--data-only=false --path P` returns to machine scope. Schedules,
+retention, and excludes survive either change; historical snapshots remain in
+the repository and can be inspected or recovered normally.
+
+`rebuild` refuses a data-only configuration before repository access. Under
+machine scope, it ignores snapshots tagged `data-only` when selecting a rebuild
+recipe or home version. Use `history`, `recover`, or `restore` for data-only
+backups. Untagged historical backups retain the legacy machine behavior.
+Rebuild always stages package/crontab manifests from the chosen machine backup
+in a fresh directory, including when that source lived under the old home.
+Newer home snapshots and current manifests cannot supply or supplement its
+recipe; a failed manifest export stops before package installation.
+
 ## Commands
 | command | does |
 |---|---|
 | `cairn` | TUI dashboard on a TTY; otherwise `status` |
-| `cairn init <target> [--password] [--path P]...` | create or connect the repo, write the config, install the timers, enable linger, start the first snapshot |
+| `cairn init <target> [--password] [--data-only] [--path P]...` | create or connect the repo, write the config, install the timers, enable linger, start the first snapshot |
 | `cairn status [--json]` | target online, last/next/count/result for each job |
 | `cairn profiles [--json]` | list configured profiles, targets, frequencies, timer names and whether each timer is enabled |
 | `cairn snapshot` / `cairn backup` | run now (the timers run these) |
@@ -39,6 +72,7 @@ cairn is a thin CLI + TUI over restic. restic stores the data, systemd user time
 | `cairn set <key> <value>` | `snapshot.every`, `snapshot.keep`, `snapshot.paths`, `backup.every`, `backup.keep`, `backup.paths`, `exclude` |
 | `cairn --skill` | print the agent skill |
 | `cairn targets [--json]` | destination examples and setup instructions; no connection or config changes; JSON is an array of `{name, summary, setup, detail}` |
+| `cairn cloud setup` | obtain rclone if needed and run its remote configuration wizard; no cairn repository or timer changes |
 | `cairn help [command]` / `<command> --help` | plain-language examples and flags without requiring setup |
 
 - `--at`: `latest` (the default), a snapshot id, `2026-10-01`, `2026-10-01 14:00`, or an age such as `30m`, `6h`, `3d`, `2w`.
@@ -75,7 +109,10 @@ configuration aborts init instead of replacing it with defaults. A failed init
 keeps the old configuration and removes only a newly generated, unsaved password.
 
 Profiles JSON is an array ordered by name, each entry containing
-`{name, target, snapshot: {every, timer, enabled}, backup: {every, timer, enabled}}`.
+`{name, target, backup_scope, snapshot: {every, timer, enabled}, backup: {every, timer, enabled}}`.
+`backup_scope` is `machine` or `data-only` for that profile. Data-only runs exclude
+the default and every named profile's manifests, including stale state without
+a current configuration.
 `enabled` is a boolean, or null if systemd cannot report it. Missing configuration
 is omitted; invalid configuration aborts the list. Status JSON adds `profile`.
 Text status, settings, and the dashboard identify the selected profile. Printed
@@ -88,6 +125,23 @@ retention could otherwise delete each other's snapshots. Remote aliases must
 also refer to distinct storage; cairn cannot resolve provider-side aliases.
 Unreadable or invalid saved profiles abort backup exclusion discovery and
 restore protection checks rather than risk copying or replacing their repositories.
+
+## Cloud setup
+
+`cloud setup` accepts no extra arguments or flags. It uses the same rclone
+selection as repository access: a binary on PATH, an existing private binary,
+or a pinned, checksum-checked download. It runs only `rclone config`, inheriting
+stdin, stdout, stderr, and rclone's normal configuration environment. The human
+chooses the provider and owns authentication. Success exits 0; a setup failure
+exits 1; unsupported arguments exit 2. It works before `init` and requires no
+private binary directory on PATH. Downloads use
+`${XDG_DATA_HOME:-$HOME/.local/share}/cairn/bin`.
+
+Both `remote:path` and `rclone:remote:path` require a configured rclone remote.
+Missing remotes and failed cloud connections give credential-safe guidance to
+run `cairn cloud setup`. A failed connection does not change the current cairn
+configuration or timers, preserves an existing repository password, and removes
+a newly generated password. Rclone configuration remains owned by rclone.
 
 ## Agent inspection and recovery
 

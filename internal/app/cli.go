@@ -9,6 +9,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime/debug"
 	"slices"
@@ -150,16 +151,29 @@ func Run(args []string, version string) int {
 		} else {
 			err = cmdProfiles(*asJSON)
 		}
+	case "cloud":
+		if len(args) != 1 || args[0] != "setup" {
+			err = &cliError{exitNeedsYes, "usage: " + profileCommand() + " cloud setup"}
+		} else {
+			err = cmdCloudSetup()
+		}
 	case "init":
 		pw := fs.Bool("password", false, "encrypt the repo with a password")
+		dataOnly := fs.Bool("data-only", false, "save only configured sources, without machine rebuild additions")
 		var paths []string
 		fs.Func("path", "back up this path instead of $HOME (repeatable)", func(v string) error { paths = append(paths, expand(v)); return nil })
 		pos := parse(fs, args)
 		if len(pos) != 1 {
-			err = &cliError{exitNeedsYes, "usage: " + profileCommand() + " init <target> [--password] [--path P]... [-y]"}
+			err = &cliError{exitNeedsYes, "usage: " + profileCommand() + " init <target> [--password] [--data-only] [--path P]... [-y]"}
 			break
 		}
-		err = cmdInit(pos[0], *pw, paths, *yes)
+		var requestedScope *bool
+		fs.Visit(func(f *flag.Flag) {
+			if f.Name == "data-only" {
+				requestedScope = dataOnly
+			}
+		})
+		err = cmdInit(pos[0], *pw, paths, *yes, requestedScope)
 	case "dashboard", "status":
 		parse(fs, args)
 		var c Config
@@ -270,7 +284,31 @@ func reportError(err error) int {
 	return code
 }
 
-func cmdInit(target string, password bool, paths []string, yes bool) error {
+func cmdCloudSetup() error {
+	bin, err := tool("rclone")
+	if err != nil {
+		return err
+	}
+	cmd := exec.Command(bin, "config") // #nosec G204 -- our rclone binary, fixed configuration command
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("rclone configuration failed: rerun `%s cloud setup`", profileCommand())
+	}
+	return nil
+}
+
+func cmdInit(target string, password bool, paths []string, yes bool, dataOnly *bool) error {
+	c, err := loadConfig()
+	existing := err == nil
+	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			return err // invalid existing settings must not be silently replaced
+		}
+		c = defaultConfig()
+	}
+	if err := c.initScope(dataOnly, paths, existing); err != nil {
+		return &cliError{exitNeedsYes, err.Error()}
+	}
 	repo, err := repoFor(target)
 	if err != nil {
 		return err
@@ -289,13 +327,6 @@ func cmdInit(target string, password bool, paths []string, yes bool) error {
 			}
 		}
 	}
-	c, err := loadConfig()
-	if err != nil {
-		if !errors.Is(err, os.ErrNotExist) {
-			return err
-		}
-		c = defaultConfig()
-	}
 	if err := checkProfileRepository(repo); err != nil {
 		return err
 	}
@@ -311,10 +342,6 @@ func cmdInit(target string, password bool, paths []string, yes bool) error {
 		}
 	}
 	c.Target, c.Repo, c.Since = target, repo, time.Now()
-	if len(paths) > 0 {
-		c.Snapshot.Paths = paths
-		c.Backup.Paths = append(slices.Clone(paths), "/etc", "/usr/share/keyrings")
-	}
 	created, shown := false, ""
 	saved := false
 	defer func() {
@@ -341,12 +368,15 @@ func cmdInit(target string, password bool, paths []string, yes bool) error {
 		}
 	case exitBadPass:
 		if !password {
-			err = fmt.Errorf("this repository has a password: put it in %s and rerun with --password", passwordFile())
+			return fmt.Errorf("this repository has a password: put it in %s and rerun with --password", passwordFile())
 		}
 	default:
 		err = fmt.Errorf("can't reach %s: %w", redact(target), err)
 	}
 	if err != nil {
+		if strings.HasPrefix(repo, "rclone:") && codeOf(err) != exitBadPass {
+			return fmt.Errorf("can't reach the rclone destination: check your remote and credentials with `%s cloud setup`, then rerun `%s init`", profileCommand(), profileCommand())
+		}
 		return err
 	}
 	if shown != "" {
@@ -473,6 +503,11 @@ func cmdHistory(c Config, p string, asJSON bool) error {
 func renderSettings(c Config) string {
 	row := func(k, v string) string { return "  " + dim.Render(fmt.Sprintf("%-15s", k)) + v }
 	lines := []string{accent.Render("cairn") + dim.Render("  profile "+selectedProfile) + "  " + clean(redact(c.Target)) + dim.Render("  host "+clean(c.Host))}
+	scope := "machine (system paths and rebuild manifests)"
+	if c.backupScope() == scopeDataOnly {
+		scope = "data-only (configured paths; no machine rebuild)"
+	}
+	lines = append(lines, row("backup.scope", scope))
 	for _, kind := range []string{"snapshot", "backup"} {
 		j := c.job(kind)
 		lines = append(lines, row(kind+".every", j.Every), row(kind+".keep", j.Keep), row(kind+".paths", tildifyAll(j.Paths)))

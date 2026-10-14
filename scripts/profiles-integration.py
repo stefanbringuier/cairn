@@ -205,6 +205,29 @@ exit 0
         for key in ("snapshot", "backup", "exclude"):
             assert current_legacy[key] == legacy_config[key]
         assert legacy_password.read_bytes() == old_password
+        # A data-only HOME source must not collect recipes from other profiles or orphaned state.
+        nested_state = root / "home/.local/state"
+        env["XDG_STATE_HOME"] = str(nested_state)
+        for relative in ("cairn/manifests", "cairn/profiles/cloud/manifests", "cairn/profiles/orphan/manifests"):
+            recipe = nested_state / relative
+            recipe.mkdir(parents=True)
+            recipe.joinpath("apt.txt").write_text("stale-machine-package\n")
+        data_repo = root / "data-only-repository"
+        run("--profile", "data", "init", str(data_repo), "--data-only", "--path", env["HOME"], "--password", "-y")
+        run("--profile", "data", "set", "snapshot.keep", "100,24h")
+        run("--profile", "data", "snapshot")
+        run("--profile", "data", "backup")
+        data_password = config / "profiles/data/password"
+        for snapshot in json.loads(restic(data_repo, data_password, "snapshots", "--json")):
+            listing = restic(data_repo, data_password, "ls", "--json", snapshot["id"])
+            paths = [json.loads(line).get("path", "") for line in listing.splitlines()]
+            assert not any("/cairn/manifests" in path or re.search(r"/cairn/profiles/[^/]+/manifests", path) for path in paths), paths
+            if "backup" in snapshot["tags"]:
+                assert "data-only" in snapshot["tags"]
+        assert not nested_state.joinpath("cairn/profiles/data/manifests").exists()
+        assert json.loads(run("--profile", "data", "status", "--json"))["backup_scope"] == "data-only"
+        scopes = {item["name"]: item["backup_scope"] for item in json.loads(run("profiles", "--json"))}
+        assert scopes == {"cloud": "machine", "data": "data-only", "default": "machine"}
         print("Passed: legacy profiles in place, isolated encrypted repositories/settings/state, independent timer inventory, generated timer XDG/profile invocation, exclusions, profile-qualified diff/recover/restore/undo, external config/password link protection, rejected duplicate repositories and failed init rollback.")
 
 

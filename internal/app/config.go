@@ -18,13 +18,54 @@ type Job struct {
 }
 
 type Config struct {
-	Target   string    `json:"target"` // as the user typed it
-	Repo     string    `json:"repo"`   // what restic gets as the repository
-	Host     string    `json:"host"`
-	Since    time.Time `json:"since,omitzero"` // when init ran here; rebuild only trusts older backups
-	Snapshot Job       `json:"snapshot"`
-	Backup   Job       `json:"backup"`
-	Exclude  []string  `json:"exclude,omitempty"`
+	Target      string    `json:"target"` // as the user typed it
+	Repo        string    `json:"repo"`   // what restic gets as the repository
+	Host        string    `json:"host"`
+	BackupScope string    `json:"backup_scope"`
+	Since       time.Time `json:"since,omitzero"` // when init ran here; rebuild only trusts older backups
+	Snapshot    Job       `json:"snapshot"`
+	Backup      Job       `json:"backup"`
+	Exclude     []string  `json:"exclude,omitempty"`
+}
+
+const (
+	scopeMachine  = "machine"
+	scopeDataOnly = "data-only"
+)
+
+func (c Config) backupScope() string {
+	if c.BackupScope == "" {
+		return scopeMachine
+	}
+	return c.BackupScope
+}
+
+// initScope preserves settings unless sources or scope are explicitly supplied.
+// Changing scope needs fresh sources so old automatic system paths cannot leak in.
+func (c *Config) initScope(dataOnly *bool, paths []string, existing bool) error {
+	scope := c.backupScope()
+	if dataOnly != nil {
+		wanted := scopeMachine
+		if *dataOnly {
+			wanted = scopeDataOnly
+		}
+		if existing && wanted != scope && len(paths) == 0 {
+			return fmt.Errorf("changing backup scope requires --path for the complete new source list")
+		}
+		scope = wanted
+	}
+	c.BackupScope = scope
+	if len(paths) == 0 && !existing && scope == scopeDataOnly {
+		paths = []string{home}
+	}
+	if len(paths) > 0 {
+		c.Snapshot.Paths = slices.Clone(paths)
+		c.Backup.Paths = slices.Clone(paths)
+		if scope == scopeMachine {
+			c.Backup.Paths = append(c.Backup.Paths, "/etc", "/usr/share/keyrings")
+		}
+	}
+	return nil
 }
 
 // Regenerable stuff: anything a lockfile, dotfile or package manager can recreate.
@@ -63,9 +104,10 @@ func dataDir() string {
 func defaultConfig() Config {
 	host, _ := os.Hostname()
 	return Config{
-		Host:     host,
-		Snapshot: Job{Every: "1h", Keep: "24h,7d,4w", Paths: []string{home}},
-		Backup:   Job{Every: "daily", Keep: "7d,4w,12m", Paths: []string{home, "/etc", "/usr/share/keyrings"}},
+		Host:        host,
+		BackupScope: scopeMachine,
+		Snapshot:    Job{Every: "1h", Keep: "24h,7d,4w", Paths: []string{home}},
+		Backup:      Job{Every: "daily", Keep: "7d,4w,12m", Paths: []string{home, "/etc", "/usr/share/keyrings"}},
 	}
 }
 
@@ -89,6 +131,7 @@ func loadProfile(name string) (Config, error) {
 	if err := json.Unmarshal(b, &c); err != nil {
 		return c, fmt.Errorf("invalid configuration for profile %s: %w", name, err)
 	}
+	c.BackupScope = c.backupScope()
 	if err := c.validate(); err != nil {
 		return c, fmt.Errorf("invalid configuration for profile %s: %w", name, err)
 	}
@@ -96,6 +139,9 @@ func loadProfile(name string) (Config, error) {
 }
 
 func (c Config) validate() error {
+	if c.backupScope() != scopeMachine && c.backupScope() != scopeDataOnly {
+		return fmt.Errorf("unknown backup scope %q", c.BackupScope)
+	}
 	if c.Target == "" || c.Repo == "" || c.Host == "" {
 		return fmt.Errorf("target, repo and host must be present")
 	}
@@ -287,8 +333,19 @@ func (c Config) excludeArgs() ([]string, error) {
 		return nil, err
 	}
 	ex := slices.Concat(builtinExcludes, c.Exclude, []string{globEscape(filepath.Join(stateDir(), "rebuild"))})
+	names := []string{"default", selectedProfile}
 	for name := range profiles {
+		names = append(names, name)
+	}
+	for _, name := range names {
 		ex = append(ex, globEscape(filepath.Join(profileDir(stateRoot(), name), "rebuild")))
+		if c.backupScope() == scopeDataOnly {
+			ex = append(ex, globEscape(filepath.Join(profileDir(stateRoot(), name), "manifests")))
+		}
+	}
+	if c.backupScope() == scopeDataOnly {
+		// Include stale state whose profile configuration is no longer present.
+		ex = append(ex, globEscape(filepath.Join(stateRoot(), "profiles"))+"/*/manifests")
 	}
 	for _, repo := range localRepositories(c, profiles) {
 		ex = append(ex, globEscape(repo))

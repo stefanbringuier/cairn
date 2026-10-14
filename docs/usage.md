@@ -85,9 +85,9 @@ account first.
 
 ```sh
 cairn --profile nas init /mnt/nas/cairn --password
-cairn --profile cloud init gdrive:backups --path ~/Projects --password
+cairn --profile cloud init gdrive:backups --data-only --path ~/Projects --password
 cairn --profile cloud set snapshot.every 6h
-cairn --profile cloud set backup.every off
+cairn --profile cloud set backup.every daily
 cairn profiles
 cairn --profile nas status
 cairn --profile cloud
@@ -119,7 +119,13 @@ name to keep both destinations or use a different password. Invalid saved
 configuration aborts instead of being replaced by defaults; a failed init
 keeps the old configuration and removes only its newly generated unused password.
 
-`cairn profiles --json` lists every configured profile with `name`, `target`,
+The NAS example uses machine scope; the cloud example uses data-only scope for
+Projects. Rclone remote definitions and authentication remain shared in normal
+rclone configuration (`RCLONE_CONFIG` or its XDG default), including when cloud
+setup is invoked with a profile. Profiles keep separate restic passwords and
+cairn settings/state; they do not create separate rclone accounts.
+
+`cairn profiles --json` lists every configured profile with `name`, `target`, `backup_scope`,
 and `snapshot`/`backup` objects containing `every`, `timer`, and `enabled`.
 The enabled value reports actual timer state: true, false, or null if systemd
 is unavailable. A configured frequency alone does not prove scheduling works.
@@ -158,6 +164,42 @@ Both kinds in a profile go to the **same repository**, so files they share are s
 
 Regenerable stuff is skipped: `.venv`, `node_modules`, `__pycache__`, `.cache`, package-manager stores, trash, container storage, and anything marked with a `CACHEDIR.TAG`. Dotfiles and lockfiles (`pyproject.toml`, `uv.lock`, `package.json`, …) are always kept, so the environment can be regenerated.
 
+### Back up data folders only
+
+Choose data-only scope when the repository is for files rather than a machine
+rebuild:
+
+```sh
+cairn init /mnt/backup/project-data --data-only --path ~/Projects --path ~/Documents
+cairn backup
+cairn set
+```
+
+Both jobs start with just those sources. Omit `--path` to use your home.
+Data-only runs skip system-folder additions and installed-package lists;
+old cairn manifests are excluded even when stored inside a source. Normal
+cache exclusions, schedules, retention, and safe file recovery still apply.
+The dashboard says **DATA BACKUPS**, and settings show `backup.scope`.
+`cairn rebuild` refuses this mode; use `history`, `recover`, or `restore`.
+
+![Data-only dashboard with disposable files and scheduler fixture metadata](images/data-only-dashboard.png)
+
+Without `--data-only`, a new setup keeps the machine defaults above.
+`--path` alone changes snapshot sources and also adds `/etc` and
+`/usr/share/keyrings` to backup sources, with package manifests still included.
+Editing `backup.paths` does not change scope. Reinitializing preserves scope,
+frequencies, retention, and excludes; supplying paths replaces both source
+lists according to that scope. To switch an existing setup, explicitly choose
+the scope and supply the complete new source list:
+
+```sh
+cairn init /mnt/backup/project-data --data-only --path ~/Projects
+cairn init /mnt/backup/cairn --data-only=false --path "$HOME"
+```
+
+Changing scope leaves old saved versions in the repository. New data-only
+versions are tagged so a later machine rebuild ignores them.
+
 ## A new machine, the same setup
 
 Install the OS, mount the same target, then:
@@ -180,6 +222,9 @@ writes to that profile's files.
 3. It walks you through reinstalling your packages, one confirmed step at a time: apt sources and keys, then `apt`, `snap`, `flatpak`, `brew`, `uv`, `pipx`, `cargo`, `npm` and your crontab.
 
 These steps are the only place cairn uses sudo, and you approve each one. Anything else that was in the backup is listed with the command to restore it.
+Package lists always come from the selected machine backup, even when a newer
+home snapshot omitted them. A failed package-list export stops installation;
+current lists do not supplement the selected recipe.
 
 ## Targets
 
@@ -187,14 +232,38 @@ These steps are the only place cairn uses sudo, and you approve each one. Anythi
 |---|---|
 | Local disk, USB drive, or another local mount | `cairn init /mnt/backup/cairn` |
 | SMB/CIFS or NFS NAS mounted on Linux | Mount the share first, then `cairn init /mnt/nas/cairn` |
-| Google Drive | Configure a `gdrive` remote with `rclone config`, then `cairn init gdrive:backups --password` |
-| SMB NAS through rclone, without a mount | Configure an `smb` remote named `nas`, then `cairn init nas:share/cairn --password` |
-| Dropbox, OneDrive, and other writable rclone remotes | Configure a remote, then `cairn init remote:backups --password` |
+| Google Drive | Run `cairn cloud setup` to configure a `gdrive` remote, then `cairn init gdrive:backups --password` |
+| SMB NAS through rclone, without a mount | Run `cairn cloud setup` to configure an `smb` remote named `nas`, then `cairn init nas:share/cairn --password` |
+| Dropbox, OneDrive, and other writable rclone remotes | Run `cairn cloud setup` to configure a remote, then `cairn init remote:backups --password` |
 | SFTP over SSH | `cairn init sftp:me@host:/srv/cairn --password` |
 | S3 and compatible services, including MinIO and Wasabi | `cairn init s3:https://endpoint/bucket/cairn --password` |
 | Backblaze B2, Azure Blob, Google Cloud Storage, OpenStack Swift, restic REST server | Use the corresponding `b2:`, `azure:`, `gs:`, `swift:`, or `rest:` [repository URL](https://restic.readthedocs.io/en/stable/030_preparing_a_new_repo.html) |
 
 These are backup destinations. Mounted folders can also be sources: `cairn set snapshot.paths +/mnt/data`. To back up files stored remotely, mount or sync them locally first.
+
+For a first cloud destination, even when rclone is not installed:
+
+```sh
+cairn cloud setup                     # create a remote named gdrive in rclone
+cairn init gdrive:backups --password   # connect after authorization is complete
+```
+
+Setup opens rclone's configuration wizard. You choose the provider and complete
+its authentication; these commands are setup examples, not connected accounts.
+If rclone is missing, cairn downloads a pinned, checksum-checked copy to
+`${XDG_DATA_HOME:-$HOME/.local/share}/cairn/bin/rclone`. `cairn cloud setup` runs
+that copy directly, so you do not need to put its directory on PATH. Rclone
+keeps its own configuration and honors its normal environment, including
+`RCLONE_CONFIG`. To invoke the downloaded copy yourself:
+
+```sh
+"${XDG_DATA_HOME:-$HOME/.local/share}/cairn/bin/rclone" config
+```
+
+Cloud setup does not change cairn's current repository or timers. If `init`
+cannot find or connect to the remote, it leaves the existing configuration,
+timers, and repository password in place and removes any newly generated
+password. Check the remote with `cairn cloud setup`, then retry `init`.
 
 Google Drive uses rclone's browser authorization flow and currently requires your own Google API client ID; follow the [Drive setup guide](https://rclone.org/drive/#making-your-own-client-id). For direct SMB access, the first path segment is the share name, as described in the [rclone SMB guide](https://rclone.org/smb/).
 

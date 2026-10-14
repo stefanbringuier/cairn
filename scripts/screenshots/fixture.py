@@ -34,7 +34,8 @@ def restic(repo, *args):
 
 def main():
     mode = sys.argv[2] if len(sys.argv) > 2 else "tui"
-    profile = "nas" if mode == "profile" else "default"
+    profile = "nas" if mode == "profile" else "cloud" if mode == "data-only" else "default"
+    data_only = mode == "data-only"
     with tempfile.TemporaryDirectory(prefix="cairn-demo-") as directory:
         root = Path(directory)
         workspace = root / "projects"
@@ -51,7 +52,8 @@ def main():
                 timestamp = (now - datetime.timedelta(hours=age)).strftime("%Y-%m-%d %H:%M:%S")
                 restic(
                     repo, "backup", str(workspace), "--host", "demo-laptop",
-                    "--tag", kind, "--time", timestamp,
+                    "--tag", kind, *(["--tag", "data-only"] if data_only and kind == "backup" else []),
+                    "--time", timestamp,
                 )
         # The restore screen can now preview one modified file against a real snapshot.
         (workspace / "launch-plan.md").write_text("# Launch plan\n\nAn accidental edit.\n")
@@ -61,9 +63,10 @@ def main():
             config = config / "profiles" / profile
         config.mkdir(parents=True)
         config.joinpath("config.json").write_text(json.dumps({
-            "target": "/mnt/" + "personal-nas-folders/" * 10 + "cairn" if profile != "default" else "/mnt/backup/cairn",
+            "target": "demo:projects (setup example)" if data_only else "/mnt/" + "personal-nas-folders/" * 10 + "cairn" if profile != "default" else "/mnt/backup/cairn",
             "repo": str(repo),
             "host": "demo-laptop",
+            "backup_scope": "data-only" if data_only else "machine",
             "snapshot": {"every": "1h", "keep": "24h,7d,4w", "paths": [str(workspace)]},
             "backup": {"every": "daily", "keep": "7d,4w,12m", "paths": [str(workspace)]},
         }))
