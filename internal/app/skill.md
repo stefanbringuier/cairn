@@ -66,17 +66,41 @@ package installation starts.
 | `cairn --skill` | This document |
 | `cairn --version` | Print the version |
 | `cairn targets [--json]` | Explain destination setup without connecting or changing configuration; JSON is an array of `{name, summary, setup, detail}` |
+| `cairn cloud setup` | Open rclone's remote configuration wizard; use a system binary or obtain the pinned, hash-checked binary first. No extra arguments or flags; no cairn repository or timer changes |
 | `cairn help [command]` / `<command> --help` | Plain-language examples and flags; works before init |
 
 **Target forms:**
 - A path (a mounted NAS from fstab, a USB disk: `/mnt/nas/cairn`). Its parent must exist.
-- An rclone remote name plus path (`gdrive:backups`). The remote must already exist: a human runs `rclone config` once.
+- An rclone remote name plus path (`gdrive:backups` or `rclone:gdrive:backups`). The remote must already exist: a human runs `cairn cloud setup` first and completes rclone's authentication.
 - Any restic URL: `sftp:user@host:/path`, `s3:...`, `b2:...`, `rest:...`.
-- SMB/NFS mounts work as local paths. Direct SMB through rclone uses `nas:share/path` after `rclone config`; Google Drive uses `gdrive:backups` and requires a user-configured Google API client ID. Other writable remotes include Dropbox, OneDrive, and WebDAV. Native restic schemes also include `azure:`, `gs:`, and `swift:`.
+- SMB/NFS mounts work as local paths. Direct SMB through rclone uses `nas:share/path` after `cairn cloud setup`; Google Drive uses `gdrive:backups` and requires a user-configured Google API client ID. Other writable remotes include Dropbox, OneDrive, and WebDAV. Native restic schemes also include `azure:`, `gs:`, and `swift:`.
 - Destinations hold restic repositories. Source paths are local; mount or sync remote source data first and explicitly add mounted sources with `cairn set snapshot.paths +/mnt/data`.
 - Scheduled cloud access needs credentials available to the systemd user manager. Init warns and succeeds if scheduling is unavailable; snapshot, backup, and restore can still run manually.
 
-restic and rclone are downloaded automatically (pinned and hash-checked) into `~/.local/share/cairn/bin` if they're missing.
+restic and rclone are downloaded automatically (pinned and hash-checked) into
+`${XDG_DATA_HOME:-$HOME/.local/share}/cairn/bin` if they're missing. Cloud setup
+works before init and runs the downloaded rclone directly; PATH changes are not
+needed. It runs only `rclone config`, inherits terminal streams and rclone's
+normal configuration environment (including `RCLONE_CONFIG`), and leaves
+authentication to the human and rclone. It changes rclone's configuration, so
+obtain authorization for setup and let the human complete browser/provider
+authentication. It has no JSON mode or `-y`; failures exit 1, bad arguments 2.
+
+First-time setup example (not a connected cloud account):
+```sh
+cairn cloud setup                     # human creates a remote named gdrive
+cairn init gdrive:backups --password   # only after authentication and init approval
+```
+To run the private binary directly after its download:
+```sh
+"${XDG_DATA_HOME:-$HOME/.local/share}/cairn/bin/rclone" config
+```
+Missing/unconfigured remotes and failed cloud connections give guidance to run
+cloud setup without exposing backend credentials. Failed init preserves current
+cairn settings, timers, and any existing repository password; a newly generated
+password is removed. Scheduled runs still need unattended credentials available
+to the systemd user manager; shell-only exports do not reach timers. Setup does
+not prove provider authentication or scheduled connectivity.
 
 **Passwords:** repos have no password by default (anyone who can read the target can read the data).
 - `--password` makes cairn prompt for one, or generate one (without a TTY it's generated, and the path to it is printed).

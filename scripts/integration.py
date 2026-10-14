@@ -398,6 +398,30 @@ def main():
             config = root / "config/rclone"
             config.mkdir(parents=True)
             config.joinpath("rclone.conf").write_text("[demo]\ntype = local\n")
+            # Failed connection must preserve the active repository and timer files.
+            cairn_config = root / "config/cairn/config.json"
+            before = cairn_config.read_bytes()
+            timers = root / "config/systemd/user"
+            timers.mkdir(parents=True, exist_ok=True)
+            timer = timers / "cairn-snapshot.timer"
+            timer.write_text("existing timer fixture\n")
+            rclone_before = config.joinpath("rclone.conf").read_bytes()
+            for target in ("missing:backups", "rclone:missing:backups"):
+                output = run("init", target, "--password", "-y", expected=1)
+                assert "cairn cloud setup" in output, output
+                assert cairn_config.read_bytes() == before
+                assert timer.read_text() == "existing timer fixture\n"
+                assert not root.joinpath("config/cairn/password").exists()
+                assert config.joinpath("rclone.conf").read_bytes() == rclone_before
+            # A remote can exist while its connection fails: use a disposable local
+            # file as a parent so rclone cannot create a repository beneath it.
+            blocked = root / "blocked-parent"
+            blocked.write_text("not a directory\n")
+            output = run("init", f"demo:{blocked}/repository", "--password", "-y", expected=1)
+            assert "cairn cloud setup" in output, output
+            assert cairn_config.read_bytes() == before
+            assert timer.read_text() == "existing timer fixture\n"
+            assert not root.joinpath("config/cairn/password").exists()
             run("init", f"demo:{root / 'rclone-repository'}", "--path", str(workspace), "--password", "-y")
             run("snapshot")
             notes.write_text("remote adapter edit\n")
