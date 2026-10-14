@@ -100,6 +100,9 @@ def main():
         folder.chmod(0o750)
         os.utime(folder, (1700000000, 1700000000))
         run("init", str(root / "repository"), "--path", str(workspace), "-y")
+        # CI has no system restic/rclone: direct fixture commands must use the
+        # same checksum-checked binaries that cairn downloads on demand.
+        env["PATH"] = str(Path(env["XDG_DATA_HOME"]) / "cairn/bin") + os.pathsep + env["PATH"]
         # Keep fixture versions that intentionally share one hourly retention bucket.
         run("set", "snapshot.keep", "100,24h,7d,4w")
         run("snapshot")
