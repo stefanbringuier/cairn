@@ -79,10 +79,13 @@ Editing a PR title or body reruns CI to validate the new squash commit metadata.
 ## Verify behavior and portability
 
 `make check vet` is the normal Go check. Use `make integration` for restore or
-storage changes (Python 3 and restic 0.17+ required). It checks a relative file,
+storage changes (Python 3, plus restic 0.17+ on PATH or network access for cairn's
+pinned download). It checks a relative file,
 interactive confirmation and cancellation, noninteractive refusal, `-y`, a
 deleted file, the undo snapshot, and a directory. If rclone is installed it
 also exercises a real local rclone remote, without touching your accounts.
+Set `CAIRN_RCLONE_TEST=1` to exercise the adapter with cairn's pinned download
+when rclone is not installed; CI tests that automatic bootstrap path.
 It also checks snapshot diffs, no-overwrite recovery, permissions/timestamps,
 named-profile selection, independent credentials/state/timers, generated timer
 commands with isolated XDG roots, and unchanged legacy configuration/units,

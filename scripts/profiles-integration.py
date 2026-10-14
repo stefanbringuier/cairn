@@ -67,7 +67,7 @@ exit 0
             return result.stdout + result.stderr
 
         def restic(repo, password, *args):
-            return subprocess.run([shutil.which("restic"), "--repo", str(repo), "--password-file", str(password), *args],
+            return subprocess.run([shutil.which("restic", path=env["PATH"]), "--repo", str(repo), "--password-file", str(password), *args],
                                   env=env, check=True, capture_output=True, text=True, timeout=120).stdout
 
         # A pre-feature installation, with unchanged legacy settings/password/unit files.
@@ -96,8 +96,9 @@ exit 0
         notes.write_text("legacy saved notes\n")
         cloud_notes = cloud / "notes.txt"
         cloud_notes.write_text("cloud saved notes\n")
-        restic(legacy_repo, legacy_password, "init")
         run("--profile", "cloud", "init", str(cloud_repo), "--password", "--path", str(cloud), "-y")
+        env["PATH"] = str(root / "data/cairn/bin") + os.pathsep + env["PATH"]
+        restic(legacy_repo, legacy_password, "init")
         cloud_password = config / "profiles/cloud/password"
         assert cloud_password.exists() and cloud_password.read_bytes() != old_password
         assert config.joinpath("config.json").read_bytes() == old_config

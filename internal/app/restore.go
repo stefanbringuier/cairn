@@ -202,6 +202,9 @@ func restoreInPlace(r Restic, c Config, s Snap, n Node, p string) (string, error
 
 func undoCommand(path, id string) string {
 	if clean(path) != path {
+		if selectedProfile != "default" {
+			return "profile " + selectedProfile + ": snapshot " + id + " (restore using the original path)"
+		}
 		return "snapshot " + id + " (restore using the original path)"
 	}
 	return profileCommand() + " restore --at " + id + " -y -- '" + strings.ReplaceAll(path, "'", "'\\''") + "'"

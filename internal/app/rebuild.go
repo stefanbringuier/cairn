@@ -102,7 +102,7 @@ type step struct {
 
 func cmdRebuild(c Config, host, from string, yes bool) error {
 	if c.backupScope() == scopeDataOnly {
-		return fmt.Errorf("data-only backups cannot rebuild a machine; use cairn history, recover, or restore for files")
+		return fmt.Errorf("data-only backups cannot rebuild a machine; use `%s history`, `%s recover`, or `%s restore` for files", profileCommand(), profileCommand(), profileCommand())
 	}
 	r, err := newRestic(c)
 	if err != nil {

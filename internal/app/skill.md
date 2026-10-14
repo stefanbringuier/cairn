@@ -187,6 +187,9 @@ Printed undo commands retain a named selection, for example
 Keep that prefix when reporting or executing an already approved undo; IDs and
 passwords belong to the selected repository. Undo itself requires replacement
 authorization and must not discard subsequent edits.
+If a path contains terminal controls, the undo message instead identifies its
+profile and snapshot ID. Use the original path through structured arguments;
+do not reconstruct a replacement destination from sanitized terminal text.
 
 **Target forms:**
 - A path (a mounted NAS from fstab, a USB disk: `/mnt/nas/cairn`). Its parent must exist.

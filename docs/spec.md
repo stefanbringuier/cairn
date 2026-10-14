@@ -116,7 +116,9 @@ a current configuration.
 `enabled` is a boolean, or null if systemd cannot report it. Missing configuration
 is omitted; invalid configuration aborts the list. Status JSON adds `profile`.
 Text status, settings, and the dashboard identify the selected profile. Printed
-undo and follow-up commands retain named-profile selection.
+undo and follow-up commands retain named-profile selection. An undo path with
+terminal controls is reported with its profile and snapshot ID rather than an
+executable command using a changed path.
 
 Init refuses a repository already configured by another profile (local paths
 are compared after resolving symlink aliases; remote URLs are compared as

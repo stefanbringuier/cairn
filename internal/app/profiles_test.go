@@ -104,6 +104,9 @@ func TestProfileFilesAndCredentialsStayIndependent(t *testing.T) {
 	if got := undoCommand("/tmp/notes.txt", "saved"); !strings.HasPrefix(got, "cairn --profile cloud restore --at saved") {
 		t.Fatal("undo loses profile: " + got)
 	}
+	if got := undoCommand("/tmp/notes\n.txt", "saved"); !strings.Contains(got, "profile cloud: snapshot saved") || strings.ContainsAny(got, "\n\r") {
+		t.Fatal("unsafe-path undo loses profile or contains terminal controls: " + got)
+	}
 	selectedProfile = "default"
 	got, _ := os.ReadFile(configFile())
 	password, _ := os.ReadFile(passwordFile())
@@ -468,5 +471,16 @@ func TestNamedMissingRemoteGuidance(t *testing.T) {
 	_, err := repoFor("missing:backups")
 	if err == nil || !strings.Contains(err.Error(), "cairn --profile cloud cloud setup") || !strings.Contains(err.Error(), "cairn --profile cloud init") {
 		t.Fatalf("missing remote hint loses profile: %v", err)
+	}
+}
+
+func TestNamedDataOnlyRebuildGuidance(t *testing.T) {
+	profileFixture(t)
+	selectedProfile = "cloud"
+	err := cmdRebuild(Config{BackupScope: scopeDataOnly}, "", "", false)
+	for _, command := range []string{"history", "recover", "restore"} {
+		if err == nil || !strings.Contains(err.Error(), "cairn --profile cloud "+command) {
+			t.Fatalf("rebuild hint loses profile: %v", err)
+		}
 	}
 }

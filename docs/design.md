@@ -29,7 +29,9 @@ The implicit `default` profile retains legacy files and units in place; named
 profiles use `profiles/NAME` beneath the same config and state roots. Selection
 is never persisted. The TUI, restic password, settings, status, manifests,
 progress, pruning marker, rebuild scratch and printed commands all use that
-selection. Dependency binaries remain shared.
+selection. When a path contains terminal controls, undo prints the profile and
+snapshot ID instead of constructing a command from a sanitized path.
+Dependency binaries remain shared.
 Each profile also selects machine or data-only scope. Data-only exclusions cover
 all default/named manifests and orphaned state, preventing recipes from another
 profile leaking into a HOME source. Rclone accounts and definitions remain in
@@ -148,6 +150,9 @@ real repository for tests. A local rclone adapter check proves the adapter,
 not Google authorization or an actual NAS connection. Failed-connection checks
 use an incorrect password against a disposable encrypted local repository, so
 they exercise credential rollback without waiting for backend connection retries.
+Integration fixtures resolve both system binaries and cairn's private downloaded
+tools for direct commands. CI exercises automatic downloads without system restic
+or rclone installations.
 
 ## Linux, releases, and docs
 
