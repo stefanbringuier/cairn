@@ -57,6 +57,151 @@ def interactive(args, env, cwd, reply):
         os.close(master)
 
 
+def data_only_checks(root, tools, base_env):
+    """Use an isolated home and real restic to verify scope and mode transitions."""
+    home = root / "data-home"
+    home.mkdir()
+    home.joinpath("notes.txt").write_text("data-only bytes\n")
+    extra = root / "extra-data"
+    extra.mkdir()
+    extra.joinpath("second.txt").write_text("second source\n")
+    env = {**base_env, "HOME": str(home),
+           "XDG_CONFIG_HOME": str(home / ".config"),
+           "XDG_STATE_HOME": str(home / ".local/state"),
+           "XDG_DATA_HOME": str(home / ".local/share"),
+           "XDG_CACHE_HOME": str(home / ".cache")}
+    repo = root / "data-repository"
+    config = home / ".config/cairn/config.json"
+    manifests = home / ".local/state/cairn/manifests"
+    manifests.mkdir(parents=True)
+    stale = manifests / "stale.txt"
+    stale.write_text("do not ship an old machine recipe\n")
+
+    def run(*args, expected=0):
+        result = subprocess.run([BINARY, *args], env=env, cwd=home,
+                                stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=120)
+        assert result.returncode == expected, (args, result.returncode, result.stdout, result.stderr)
+        return result.stdout + result.stderr
+
+    def restic(*args):
+        result = subprocess.run(["restic", "--repo", str(repo), "--insecure-no-password", *args],
+                                env=env, capture_output=True, text=True, timeout=120)
+        assert result.returncode == 0, (args, result.stdout, result.stderr)
+        return result.stdout
+
+    def saved():
+        return json.loads(restic("snapshots", "--json"))
+
+    def assert_data_versions(paths):
+        for version in saved():
+            assert sorted(version["paths"]) == sorted(map(str, paths)), version
+            if "backup" in version["tags"]:
+                assert "data-only" in version["tags"], version
+            else:
+                assert version["tags"] == ["snapshot"], version
+            nodes = [json.loads(line) for line in restic("ls", "--json", version["id"]).splitlines()]
+            assert not any(node.get("path", "").startswith(str(manifests)) for node in nodes), nodes
+            assert any(node.get("path") == str(home / "notes.txt") for node in nodes), nodes
+
+    # Without --path a new data-only configuration defaults both jobs to HOME.
+    output = run("init", str(repo), "--data-only", "-y")
+    c = json.loads(config.read_text())
+    assert c["backup_scope"] == "data-only" and "backup.scope" in output
+    assert c["snapshot"]["paths"] == c["backup"]["paths"] == [str(home)]
+    run("snapshot")
+    run("backup")
+    assert_data_versions([home])
+    assert list(manifests.iterdir()) == [stale], "Data-only run generated manifests"
+    assert "data-only" in run("rebuild", "-y", expected=1)
+    assert json.loads(run("status", "--json"))["backup_scope"] == "data-only"
+
+    # Settings are saved before the deliberately unavailable scheduler fails.
+    run("set", "snapshot.every", "off", expected=1)
+    run("set", "backup.every", "off", expected=1)
+    run("set", "snapshot.keep", "100,24h")
+    run("set", "backup.keep", "100,7d")
+    run("set", "exclude", "+*.skip")
+    before = json.loads(config.read_text())
+    run("init", str(repo), "-y")
+    after = json.loads(config.read_text())
+    for key in ("backup_scope", "snapshot", "backup", "exclude"):
+        assert before[key] == after[key], (key, before, after)
+    run("init", str(repo), "--path", str(home), "--path", str(extra), "-y")
+    c = json.loads(config.read_text())
+    assert c["snapshot"]["paths"] == c["backup"]["paths"] == [str(home), str(extra)]
+    run("snapshot")
+    run("backup")
+    for version in saved():
+        assert "/etc" not in version["paths"] and "/usr/share/keyrings" not in version["paths"]
+
+    before = config.read_bytes()
+    rejected_target = root / "scope-rejected-repository"
+    run("init", str(rejected_target), "--data-only=false", "-y", expected=2)
+    assert config.read_bytes() == before and not rejected_target.exists(), "Rejected transition had side effects"
+    run("init", str(repo), "--data-only=false", "--path", str(home), "-y")
+    c = json.loads(config.read_text())
+    assert c["backup_scope"] == "machine"
+    assert c["snapshot"]["paths"] == [str(home)]
+    assert c["backup"]["paths"] == [str(home), "/etc", "/usr/share/keyrings"]
+    assert "no backups" in run("rebuild", "--from", str(home), expected=1), "Rebuild selected a data-only recipe"
+
+    # Collect fixture manifests, not package lists from the test runner's account.
+    manager_log = root / "scope-manager-calls"
+    rebuild_log = root / "scope-rebuild-calls"
+    env["CAIRN_TEST_MANIFEST_LOG"] = str(manager_log)
+    env["CAIRN_TEST_REBUILD_LOG"] = str(rebuild_log)
+    for name in ("apt-mark", "snap", "flatpak", "brew", "uv", "pipx", "cargo", "npm", "crontab"):
+        tools.joinpath(name).write_text(
+            '#!/bin/sh\nprintf "called\\n" >> "$CAIRN_TEST_MANIFEST_LOG"\n'
+            + f'printf "{name} %s\\n" "$*" >> "$CAIRN_TEST_REBUILD_LOG"\n'
+            + ('exit 1\n' if name == "npm" else 'printf "demo\\n"\n'))
+        tools.joinpath(name).chmod(0o700)
+    run("set", "backup.paths", str(home))  # keep all machine sources disposable
+    run("backup")
+    machine = saved()[-1]
+    assert machine["tags"] == ["backup"] and str(manifests) in machine["paths"]
+    calls = manager_log.read_bytes()
+    assert manifests.joinpath("apt.txt").read_text() == "demo\n"
+
+    before = config.read_bytes()
+    run("init", str(rejected_target), "--data-only", "-y", expected=2)
+    assert config.read_bytes() == before and not rejected_target.exists()
+    run("init", str(repo), "--data-only", "--path", str(home), "-y")
+    run("backup")
+    data = saved()[-1]
+    assert data["tags"] == ["backup", "data-only"] and data["paths"] == [str(home)]
+    assert manager_log.read_bytes() == calls, "Data-only run invoked package managers"
+    nodes = [json.loads(line) for line in restic("ls", "--json", data["id"]).splitlines()]
+    assert not any(node.get("path", "").startswith(str(manifests)) for node in nodes)
+    run("init", str(repo), "--data-only=false", "--path", str(home), "-y")
+    refusal = run("rebuild", "--from", str(home), expected=2)
+    assert machine["short_id"] in refusal and data["short_id"] not in refusal, refusal
+    c = json.loads(config.read_text())
+    assert c["snapshot"]["every"] == c["backup"]["every"] == "off"
+    assert c["snapshot"]["keep"] == "100,24h" and c["backup"]["keep"] == "100,7d"
+    assert c["exclude"] == ["*.skip"]
+
+    # Run the real rebuild through HOME/recipe restore, with all installs inert.
+    # An absent recipe manager must not pick up a stale live list left in HOME.
+    manifests.joinpath("apt.txt").write_text("stale-live-package\n")
+    manifests.joinpath("npm.txt").write_text("stale-extra-manager\n")
+    for name, script in {
+        "sudo": 'printf "sudo %s\\n" "$*" >> "$CAIRN_TEST_REBUILD_LOG"\n',
+        "apt-cache": 'printf "demo\\n"\n',
+    }.items():
+        tools.joinpath(name).write_text("#!/bin/sh\n" + script)
+        tools.joinpath(name).chmod(0o700)
+    rebuild_log.write_text("")
+    run("rebuild", "--from", str(home), "-y")
+    installed = rebuild_log.read_text()
+    assert "sudo apt install -y demo" in installed, installed
+    assert "npm " not in installed and "stale-" not in installed, installed
+    crontab = [line for line in installed.splitlines() if line.startswith("crontab ")]
+    assert len(crontab) == 1 and "/rebuild/manifests-" in crontab[0], installed
+    assert not list(home.joinpath(".local/state/cairn/rebuild").glob("manifests-*")), "Recipe scratch leaked"
+    print("Passed: data-only sources/tags, stale-manifest exclusion, default machine compatibility, preserved settings, explicit scope transitions, and rebuild refusal/recipe filtering.")
+
+
 def main():
     with tempfile.TemporaryDirectory(prefix="cairn-integration-") as directory:
         root = Path(directory)
@@ -103,6 +248,10 @@ def main():
         # CI has no system restic/rclone: direct fixture commands must use the
         # same checksum-checked binaries that cairn downloads on demand.
         env["PATH"] = str(Path(env["XDG_DATA_HOME"]) / "cairn/bin") + os.pathsep + env["PATH"]
+        defaults = json.loads(run("set", "--json"))
+        assert defaults["backup_scope"] == "machine"
+        assert defaults["snapshot"]["paths"] == [str(workspace)]
+        assert defaults["backup"]["paths"] == [str(workspace), "/etc", "/usr/share/keyrings"]
         # Keep fixture versions that intentionally share one hourly retention bucket.
         run("set", "snapshot.keep", "100,24h,7d,4w")
         run("snapshot")
@@ -291,6 +440,8 @@ def main():
             print("Passed: real rclone local adapter init, encrypted backup, and restore. No cloud account or NAS was used.")
         else:
             print("rclone adapter not exercised: install rclone or set CAIRN_RCLONE_TEST=1 to allow its pinned download.")
+
+        data_only_checks(root, tools, env)
 
 
 if __name__ == "__main__":

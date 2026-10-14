@@ -87,7 +87,7 @@ Newer files outside the snapshot are kept. Without a terminal, a confirmation
 that cannot be shown exits 2; pass -y to proceed.
 `
 	case "init":
-		return `cairn init <target> [--password] [--path <folder>]... [-y]
+		return `cairn init <target> [--password] [--data-only] [--path <folder>]... [-y]
 
 Create or connect a backup repository, install systemd user timers, and start
 the first snapshot. Run cairn targets for NAS and cloud setup instructions.
@@ -96,10 +96,19 @@ the first snapshot. Run cairn targets for NAS and cloud setup instructions.
   cairn cloud setup                     Configure a remote before cloud init.
   cairn init gdrive:backups --password
   cairn init /mnt/backup/cairn --path ~/Projects --password
+  cairn init /mnt/backup/data --data-only --path ~/Projects
 
   --password  Protect backups with a password; save it off this machine.
   --path      Use this source instead of your home; repeat to add more.
+  --data-only Save configured sources without system folders or rebuild lists.
   -y          Accept the same-disk warning without asking.
+
+New setups default to machine scope: backups add /etc, /usr/share/keyrings,
+and package manifests, even with --path. Data-only scope uses just the paths
+for both jobs (your home when omitted), excluding old cairn manifests.
+Reinitializing preserves scope and settings; --path replaces both job lists.
+Changing an existing scope requires explicit --path sources. Use
+--data-only=false --path <folder> to return to machine scope.
 
 Mounted shares use a local path. Cloud targets need credentials configured
 first. Password protection is off by default.
@@ -123,7 +132,7 @@ Downloaded binaries live in ${XDG_DATA_HOME:-$HOME/.local/share}/cairn/bin;
 cloud setup also works when that directory is not on PATH.
 `
 	case "snapshot", "backup":
-		return "cairn " + cmd + "\n\nSave a new version now. Snapshots cover your home and added folders. Full\nbackups also include system settings, keyrings, and package lists. Shared\nfiles are stored once; caches and disposable environments are skipped.\n"
+		return "cairn " + cmd + "\n\nSave a new version now using configured paths. Machine backups also include\npackage lists; data-only backups omit rebuild lists and automatic system\npaths. Shared files are stored once; caches and disposable environments are\nskipped. Choose scope with init --data-only; see cairn help init.\n"
 	case "diff":
 		return `cairn diff <from> [<to>] [--path <file-or-folder>] [--metadata] [--json]
 
@@ -178,9 +187,10 @@ keep controls how many hourly, daily, weekly, monthly, or yearly versions stay.
 Keys: snapshot.every, snapshot.keep, snapshot.paths, backup.every,
 backup.keep, backup.paths, exclude. Frequencies: 15m, 30m, 1h, 6h, 12h,
 daily, weekly, off. Lists: +value adds, -value removes, a,b replaces.
+backup.scope is shown for clarity; change scope with init, not set.
 `
 	case "rebuild":
-		return "cairn rebuild [--host <old-host>] [--from <old-home>] [-y]\n\nRecover your old home on a new Linux machine, stage old system settings for\nreference, and walk through reinstalling packages. Each install step asks\nfirst and may need sudo. -y accepts those steps without asking.\n"
+		return "cairn rebuild [--host <old-host>] [--from <old-home>] [-y]\n\nRecover your old home on a new Linux machine, stage old system settings for\nreference, and walk through reinstalling packages. Each install step asks\nfirst and may need sudo. -y accepts those steps without asking.\nData-only configurations are refused; use history, recover, or restore.\nBackups tagged data-only are never selected as a machine rebuild recipe.\n"
 	default:
 		return usage
 	}

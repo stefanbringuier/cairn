@@ -76,8 +76,11 @@ var validName = regexp.MustCompile(`^[A-Za-z0-9@][A-Za-z0-9@._+:/=-]*$`)
 
 // readNames loads a manifest restored from the repo. The names end up as arguments to
 // `sudo apt install` & co, so anything that isn't a plain package name is dropped.
-func readNames(m manager) []string {
-	b, err := os.ReadFile(filepath.Join(manifestDir(), m.file))
+func readNames(m manager, dir string) []string {
+	if dir == "" {
+		return nil // no recipe: never fall back to live package lists
+	}
+	b, err := os.ReadFile(filepath.Join(dir, m.file)) // #nosec G304 -- fixed manager filename in the private restored recipe
 	if err != nil {
 		return nil
 	}
@@ -98,6 +101,9 @@ type step struct {
 }
 
 func cmdRebuild(c Config, host, from string, yes bool) error {
+	if c.backupScope() == scopeDataOnly {
+		return fmt.Errorf("data-only backups cannot rebuild a machine; use cairn history, recover, or restore for files")
+	}
 	r, err := newRestic(c)
 	if err != nil {
 		return err
@@ -107,7 +113,7 @@ func cmdRebuild(c Config, host, from string, yes bool) error {
 		return err
 	}
 	// Only trust what existed before this machine was set up, so a fresh machine's own runs never win.
-	all = slices.DeleteFunc(all, func(s Snap) bool { return !c.Since.IsZero() && !s.Time.Before(c.Since) })
+	all = rebuildCandidates(c, all)
 	if host == "" {
 		hosts := map[string]bool{}
 		for _, s := range all {
@@ -184,18 +190,19 @@ func cmdRebuild(c Config, host, from string, yes bool) error {
 	}
 	ok("home restored")
 	stage := filepath.Join(stateDir(), "rebuild")
+	recipe := ""
 	for _, p := range b.Paths {
 		switch {
 		case p == "/etc" || p == "/usr/share/keyrings":
 			if _, err := r.out("restore", "--target", filepath.Join(stage, filepath.Base(p)), "--", b.ID+":"+p); err != nil {
 				warn("couldn't stage " + p + ": " + err.Error())
 			}
-		case strings.HasSuffix(p, "/cairn/manifests"): // shipped separately when $HOME isn't a backup path
-			if !strings.HasPrefix(p, from+"/") {
-				if _, err := r.out("restore", "--target", manifestDir(), "--", b.ID+":"+p); err != nil {
-					warn("couldn't restore the package lists: " + err.Error())
-				}
+		case strings.HasSuffix(p, "/cairn/manifests"): // explicit recipe source, including paths beneath the old home
+			recipe, err = restoreRebuildManifests(r, b, p, stage)
+			if err != nil {
+				return fmt.Errorf("couldn't restore the package lists; no packages installed: %w", err)
 			}
+			defer func(dir string) { _ = os.RemoveAll(dir) }(recipe)
 		case p != from:
 			note("also in this backup: " + clean(p) + " → `cairn restore " + clean(p) + " --at " + b.ShortID + "`")
 		}
@@ -211,7 +218,7 @@ func cmdRebuild(c Config, host, from string, yes bool) error {
 				`[ -d "$2" ] && cp -rn "$2/." /usr/share/keyrings/; true`, "sh", etc, keyrings}, ""
 		}})
 	}
-	if names := readNames(managers[0]); len(names) > 0 {
+	if names := readNames(managers[0], recipe); len(names) > 0 {
 		steps = append(steps, step{"Refresh apt", func() ([]string, string) { return []string{"sudo", "apt", "update"}, "" }})
 		steps = append(steps, step{fmt.Sprintf("Reinstall %d apt packages", len(names)), func() ([]string, string) {
 			out, err := exec.Command("apt-cache", "pkgnames").Output()
@@ -227,7 +234,7 @@ func cmdRebuild(c Config, host, from string, yes bool) error {
 		}})
 	}
 	for _, m := range managers[1:] {
-		names := readNames(m)
+		names := readNames(m, recipe)
 		if len(names) == 0 {
 			continue
 		}
@@ -238,9 +245,9 @@ func cmdRebuild(c Config, host, from string, yes bool) error {
 			return append(slices.Clone(m.install), names...), ""
 		}})
 	}
-	if _, err := os.Stat(filepath.Join(manifestDir(), "crontab.txt")); err == nil {
+	if _, err := os.Stat(filepath.Join(recipe, "crontab.txt")); recipe != "" && err == nil {
 		steps = append(steps, step{"Restore your crontab", func() ([]string, string) {
-			return []string{"crontab", filepath.Join(manifestDir(), "crontab.txt")}, ""
+			return []string{"crontab", filepath.Join(recipe, "crontab.txt")}, ""
 		}})
 	}
 
@@ -266,4 +273,30 @@ func cmdRebuild(c Config, host, from string, yes bool) error {
 	}
 	ok("rebuild done · /etc from the old machine is in " + tildify(filepath.Join(stage, "etc")) + " for reference")
 	return nil
+}
+
+// Restore the chosen machine recipe into a fresh directory, even when its
+// source was under the old home. Newer snapshots may omit the recipe entirely;
+// existing live lists must neither replace nor supplement the chosen backup.
+func restoreRebuildManifests(r Restic, backup Snap, source, stage string) (string, error) {
+	if err := os.MkdirAll(stage, 0o700); err != nil {
+		return "", err
+	}
+	dir, err := os.MkdirTemp(stage, "manifests-")
+	if err != nil {
+		return "", err
+	}
+	if _, err := r.out("restore", "--target", dir, "--", backup.ID+":"+source); err != nil {
+		_ = os.RemoveAll(dir)
+		return "", err
+	}
+	return dir, nil
+}
+
+// Data-only backups cannot become a machine recipe or home source after a
+// reconnect with machine scope. Legacy, untagged backups keep their old meaning.
+func rebuildCandidates(c Config, all []Snap) []Snap {
+	return slices.DeleteFunc(all, func(s Snap) bool {
+		return slices.Contains(s.Tags, scopeDataOnly) || (!c.Since.IsZero() && !s.Time.Before(c.Since))
+	})
 }

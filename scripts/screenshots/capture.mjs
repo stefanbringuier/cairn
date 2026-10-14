@@ -83,6 +83,7 @@ try {
   };
   const key = (input) => page.evaluate((value) => window.sendInput(value), input);
   const grab = async (name) => {
+    if (process.env.CAIRN_SCREENSHOT_ONLY && !process.env.CAIRN_SCREENSHOT_ONLY.split(",").includes(name)) return;
     // Crop unused rows without resizing the PTY or changing the application's view.
     await page.evaluate(() => {
       const lines = screenText().split("\n");
@@ -143,6 +144,21 @@ try {
   await ready("FULL BACKUPS");
   await ready("quit");
   console.log("Verified settings navigation and the compact dashboard at 60×24.");
+  await key("q");
+  await stopFixture();
+  await page.evaluate(() => {
+    terminal.reset();
+    terminal.resize(110, 32);
+    document.querySelector(".label").textContent = "cairn · data-only setup example";
+  });
+  startFixture("data-only");
+  await ready("DATA BACKUPS");
+  await ready("4 kept");
+  await grab("data-only-dashboard");
+  await page.evaluate(() => terminal.resize(60, 24));
+  fixture.stdin.write(JSON.stringify({ resize: [24, 60] }) + "\n");
+  await ready("DATA BACKUPS");
+  await ready("quit");
   await key("q");
   await stopFixture();
   await page.evaluate(() => {

@@ -202,7 +202,7 @@ func TestFailedCloudInitPreservesConfigurationAndTimers(t *testing.T) {
 				}
 				cloudTool(t, dir, "restic", resticScript)
 				for _, target := range []string{"demo:secret credential/path", "rclone:demo:secret credential/path"} {
-					err := cmdInit(target, true, []string{dir}, true)
+					err := cmdInit(target, true, []string{dir}, true, nil)
 					if err == nil || strings.Contains(err.Error(), "secret credential") {
 						t.Fatalf("failure leaked credentials or succeeded: %v", err)
 					}
@@ -235,7 +235,7 @@ func TestFailedInitToolBootstrapRemovesNewPassword(t *testing.T) {
 	httpClient = &http.Client{Transport: cloudTransport(func(*http.Request) (*http.Response, error) {
 		return nil, errors.New("tool download unavailable")
 	})}
-	if err := cmdInit("demo:path", true, nil, true); err == nil {
+	if err := cmdInit("demo:path", true, nil, true, nil); err == nil {
 		t.Fatal("initialization succeeded without restic")
 	}
 	if _, err := os.Stat(passwordFile()); !os.IsNotExist(err) {

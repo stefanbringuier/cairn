@@ -90,6 +90,8 @@ It also checks snapshot diffs, no-overwrite recovery, permissions/timestamps,
 deleted links, incomplete safety backups, and undo for normally excluded files
 and alternate destinations. If ffmpeg and ffprobe are installed, it recovers a
 real 50-second video while preserving a newer unsnapshotted edit.
+It also verifies data-only snapshots and backups, stale-manifest exclusion,
+scope changes with preserved settings, and rebuild recipe filtering.
 
 Review [agent safety](docs/agent-safety.md) before changing recovery behavior.
 Keep agent defaults on separate copies; permission enforcement belongs to the
