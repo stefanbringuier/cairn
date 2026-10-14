@@ -100,6 +100,9 @@ def main():
         folder.chmod(0o750)
         os.utime(folder, (1700000000, 1700000000))
         run("init", str(root / "repository"), "--path", str(workspace), "-y")
+        # CI has no system restic/rclone: direct fixture commands must use the
+        # same checksum-checked binaries that cairn downloads on demand.
+        env["PATH"] = str(Path(env["XDG_DATA_HOME"]) / "cairn/bin") + os.pathsep + env["PATH"]
         # Keep fixture versions that intentionally share one hourly retention bucket.
         run("set", "snapshot.keep", "100,24h,7d,4w")
         run("snapshot")
@@ -249,6 +252,37 @@ def main():
             config = root / "config/rclone"
             config.mkdir(parents=True)
             config.joinpath("rclone.conf").write_text("[demo]\ntype = local\n")
+            # Failed connection must preserve the active repository and timer files.
+            cairn_config = root / "config/cairn/config.json"
+            before = cairn_config.read_bytes()
+            timers = root / "config/systemd/user"
+            timers.mkdir(parents=True, exist_ok=True)
+            timer = timers / "cairn-snapshot.timer"
+            timer.write_text("existing timer fixture\n")
+            rclone_before = config.joinpath("rclone.conf").read_bytes()
+            for target in ("missing:backups", "rclone:missing:backups"):
+                output = run("init", target, "--password", "-y", expected=1)
+                assert "cairn cloud setup" in output, output
+                assert cairn_config.read_bytes() == before
+                assert timer.read_text() == "existing timer fixture\n"
+                assert not root.joinpath("config/cairn/password").exists()
+                assert config.joinpath("rclone.conf").read_bytes() == rclone_before
+            # Use a real encrypted repository with a different password. This
+            # fails promptly after rclone connects, without backend retry delays.
+            protected = root / "protected-rclone-repository"
+            fixture_password = root / "fixture-password"
+            fixture_password.write_text("isolated integration repository password\n")
+            fixture_password.chmod(0o600)
+            subprocess.run(
+                ["restic", "--repo", str(protected), "--password-file", str(fixture_password), "init"],
+                env=env, cwd=workspace, check=True, capture_output=True, text=True, timeout=120,
+            )
+            output = run("init", f"demo:{protected}", "--password", "-y", expected=1)
+            assert "wrong password" in output, output
+            assert cairn_config.read_bytes() == before
+            assert timer.read_text() == "existing timer fixture\n"
+            assert not root.joinpath("config/cairn/password").exists()
+            assert config.joinpath("rclone.conf").read_bytes() == rclone_before
             run("init", f"demo:{root / 'rclone-repository'}", "--path", str(workspace), "--password", "-y")
             run("snapshot")
             notes.write_text("remote adapter edit\n")

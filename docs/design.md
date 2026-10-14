@@ -21,6 +21,16 @@ restic owns the repository format, deduplication, and transfer. rclone owns
 remote configuration and authentication. systemd owns scheduling. The Go
 program stays independent of the docs and screenshot tooling.
 
+`cairn cloud setup` is a fixed `rclone config` invocation with inherited terminal
+streams. It reuses `tool("rclone")` so first-time setup can download the pinned,
+checksum-checked binary before any repository is connected. It accepts no
+pass-through arguments and never changes cairn settings or timers. Rclone owns
+its configuration, browser flow, credentials, and configuration environment.
+Initialization checks configured remotes for shorthand and explicit rclone
+targets. Failed cloud connections report setup guidance without backend error
+text that could contain credentials. Configuration and scheduling begin only
+after a successful connection; any new password is removed on earlier failure.
+
 ## Extend a command
 
 Write its expected behavior in [spec.md](spec.md) first. Add dispatch and
@@ -83,7 +93,12 @@ mounted sources because runs use `--one-file-system`.
 Use `--password` for cloud and shared destinations. Scheduled processes need
 credentials available to the systemd user manager. Never use a contributor's
 real repository for tests. A local rclone adapter check proves the adapter,
-not Google authorization or an actual NAS connection.
+not Google authorization or an actual NAS connection. Failed-connection checks
+use an incorrect password against a disposable encrypted local repository, so
+they exercise credential rollback without waiting for backend connection retries.
+Integration fixtures resolve both system binaries and cairn's private downloaded
+tools for direct commands. CI exercises automatic downloads without system restic
+or rclone installations.
 
 ## Linux, releases, and docs
 

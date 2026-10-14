@@ -9,6 +9,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime/debug"
 	"slices"
@@ -138,6 +139,12 @@ func Run(args []string, version string) int {
 		} else {
 			err = printHelp(os.Stdout, "targets")
 		}
+	case "cloud":
+		if len(args) != 1 || args[0] != "setup" {
+			err = &cliError{exitNeedsYes, "usage: cairn cloud setup"}
+		} else {
+			err = cmdCloudSetup()
+		}
 	case "init":
 		pw := fs.Bool("password", false, "encrypt the repo with a password")
 		var paths []string
@@ -258,7 +265,20 @@ func reportError(err error) int {
 	return code
 }
 
-func cmdInit(target string, password bool, paths []string, yes bool) error {
+func cmdCloudSetup() error {
+	bin, err := tool("rclone")
+	if err != nil {
+		return err
+	}
+	cmd := exec.Command(bin, "config") // #nosec G204 -- our rclone binary, fixed configuration command
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("rclone configuration failed: rerun `cairn cloud setup`")
+	}
+	return nil
+}
+
+func cmdInit(target string, password bool, paths []string, yes bool) (initErr error) {
 	repo, err := repoFor(target)
 	if err != nil {
 		return err
@@ -289,6 +309,11 @@ func cmdInit(target string, password bool, paths []string, yes bool) error {
 		c.Backup.Paths = append(slices.Clone(paths), "/etc", "/usr/share/keyrings")
 	}
 	created, shown := false, ""
+	defer func() {
+		if initErr != nil && created {
+			_ = os.Remove(passwordFile()) // a failed connection must not change active credentials
+		}
+	}()
 	if password {
 		if created, shown, err = setupPassword(); err != nil {
 			return err
@@ -308,14 +333,14 @@ func cmdInit(target string, password bool, paths []string, yes bool) error {
 		}
 	case exitBadPass:
 		if !password {
-			err = fmt.Errorf("this repository has a password: put it in %s and rerun with --password", passwordFile())
+			return fmt.Errorf("this repository has a password: put it in %s and rerun with --password", passwordFile())
 		}
 	default:
 		err = fmt.Errorf("can't reach %s: %w", redact(target), err)
 	}
 	if err != nil {
-		if created {
-			os.Remove(passwordFile()) // a wrong or unused password must not stick around
+		if strings.HasPrefix(repo, "rclone:") && codeOf(err) != exitBadPass {
+			return fmt.Errorf("can't reach the rclone destination: check your remote and credentials with `cairn cloud setup`, then rerun cairn init")
 		}
 		return err
 	}

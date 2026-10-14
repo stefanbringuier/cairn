@@ -20,6 +20,7 @@ const usage = `cairn — a way back to your files, with restic as your trail
   cairn set             See your settings; add a key and value to change one.
   cairn rebuild         Recover your home and walk through reinstalling packages.
   cairn targets         See local, NAS, and cloud destination setup examples.
+  cairn cloud setup     Open rclone configuration for your cloud destination.
   cairn --skill         Print the command reference for agents.
   cairn --version       Print the installed version.
 
@@ -42,11 +43,11 @@ func (s storageChoice) FilterValue() string { return s.Name }
 var storageChoices = []storageChoice{
 	{"Local disk or USB drive", "A folder on a disk you can write to.", "cairn init /mnt/backup/cairn", "Mount the disk first. A copy on your home disk helps undo mistakes, but cannot survive that disk failing."},
 	{"Mounted SMB / NFS NAS", "A network share mounted as a local folder.", "cairn init /mnt/nas/cairn --password", "Mount the share first and keep it available for scheduled runs. Mounted folders can also be sources: cairn set snapshot.paths +/mnt/data"},
-	{"Google Drive", "A Google Drive remote configured with rclone.", "rclone config\ncairn init gdrive:backups --password", "Create an rclone remote named gdrive, choose Google Drive, and authorize it in your browser. Use your own Google API client ID: https://rclone.org/drive/#making-your-own-client-id"},
-	{"SMB NAS through rclone", "Reach a share directly, without a local mount.", "rclone config\ncairn init nas:share/cairn --password", "Create an rclone remote named nas, choose SMB, and supply the server and credentials. The first path segment (share) is the share name."},
+	{"Google Drive", "A Google Drive remote configured with rclone.", "cairn cloud setup\ncairn init gdrive:backups --password", "Setup opens rclone (downloaded if needed). Create a remote named gdrive, choose Google Drive, and authorize it in your browser. Use your own Google API client ID: https://rclone.org/drive/#making-your-own-client-id"},
+	{"SMB NAS through rclone", "Reach a share directly, without a local mount.", "cairn cloud setup\ncairn init nas:share/cairn --password", "Setup opens rclone (downloaded if needed). Create a remote named nas, choose SMB, and supply the server and credentials. The first path segment (share) is the share name."},
 	{"SFTP over SSH", "Save backups on a server or NAS with SSH access.", "cairn init sftp:me@host:/srv/cairn --password", "Set up SSH access first. Scheduled runs need unattended authentication, usually an SSH key."},
 	{"S3 and compatible storage", "Amazon S3, MinIO, Wasabi, and compatible services.", "cairn init s3:https://endpoint/bucket/cairn --password", "Create the bucket and configure provider credentials. Make credentials available to your systemd user manager so timers can use them."},
-	{"More cloud destinations", "Dropbox, OneDrive, WebDAV, B2, Azure, GCS, Swift.", "rclone config\ncairn init remote:backups --password", "Use a writable rclone remote, or a native restic URL: b2:, azure:, gs:, swift:, rest:. Configure credentials before initializing."},
+	{"More cloud destinations", "Dropbox, OneDrive, WebDAV, B2, Azure, GCS, Swift.", "cairn cloud setup\ncairn init remote:backups --password", "Setup opens rclone (downloaded if needed). Create a writable remote named remote, or use a native restic URL: b2:, azure:, gs:, swift:, rest:. Configure credentials before initializing."},
 }
 
 func targetGuide() string {
@@ -92,6 +93,7 @@ Create or connect a backup repository, install systemd user timers, and start
 the first snapshot. Run cairn targets for NAS and cloud setup instructions.
 
   cairn init /mnt/backup/cairn
+  cairn cloud setup                     Configure a remote before cloud init.
   cairn init gdrive:backups --password
   cairn init /mnt/backup/cairn --path ~/Projects --password
 
@@ -105,6 +107,21 @@ Without systemd user timers, run snapshots and backups manually.
 `
 	case "targets":
 		return "cairn targets [--json]\n\n--json prints structured setup guides for scripts and agents.\n\n" + targetGuide()
+	case "cloud":
+		return `cairn cloud setup
+
+Open rclone's remote configuration wizard, before connecting a cloud repository.
+Uses rclone on PATH or downloads a pinned, checksum-checked copy if needed.
+You choose the provider and complete authentication in rclone and your browser.
+
+  cairn cloud setup                      Create a remote named gdrive.
+  cairn init gdrive:backups --password    Connect after setup is complete.
+
+No cairn repository settings or timers change during setup. No extra arguments
+or flags are accepted. Rclone keeps its own configuration and credentials.
+Downloaded binaries live in ${XDG_DATA_HOME:-$HOME/.local/share}/cairn/bin;
+cloud setup also works when that directory is not on PATH.
+`
 	case "snapshot", "backup":
 		return "cairn " + cmd + "\n\nSave a new version now. Snapshots cover your home and added folders. Full\nbackups also include system settings, keyrings, and package lists. Shared\nfiles are stored once; caches and disposable environments are skipped.\n"
 	case "diff":

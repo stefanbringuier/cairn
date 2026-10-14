@@ -111,14 +111,38 @@ These steps are the only place cairn uses sudo, and you approve each one. Anythi
 |---|---|
 | Local disk, USB drive, or another local mount | `cairn init /mnt/backup/cairn` |
 | SMB/CIFS or NFS NAS mounted on Linux | Mount the share first, then `cairn init /mnt/nas/cairn` |
-| Google Drive | Configure a `gdrive` remote with `rclone config`, then `cairn init gdrive:backups --password` |
-| SMB NAS through rclone, without a mount | Configure an `smb` remote named `nas`, then `cairn init nas:share/cairn --password` |
-| Dropbox, OneDrive, and other writable rclone remotes | Configure a remote, then `cairn init remote:backups --password` |
+| Google Drive | Run `cairn cloud setup` to configure a `gdrive` remote, then `cairn init gdrive:backups --password` |
+| SMB NAS through rclone, without a mount | Run `cairn cloud setup` to configure an `smb` remote named `nas`, then `cairn init nas:share/cairn --password` |
+| Dropbox, OneDrive, and other writable rclone remotes | Run `cairn cloud setup` to configure a remote, then `cairn init remote:backups --password` |
 | SFTP over SSH | `cairn init sftp:me@host:/srv/cairn --password` |
 | S3 and compatible services, including MinIO and Wasabi | `cairn init s3:https://endpoint/bucket/cairn --password` |
 | Backblaze B2, Azure Blob, Google Cloud Storage, OpenStack Swift, restic REST server | Use the corresponding `b2:`, `azure:`, `gs:`, `swift:`, or `rest:` [repository URL](https://restic.readthedocs.io/en/stable/030_preparing_a_new_repo.html) |
 
 These are backup destinations. Mounted folders can also be sources: `cairn set snapshot.paths +/mnt/data`. To back up files stored remotely, mount or sync them locally first.
+
+For a first cloud destination, even when rclone is not installed:
+
+```sh
+cairn cloud setup                     # create a remote named gdrive in rclone
+cairn init gdrive:backups --password   # connect after authorization is complete
+```
+
+Setup opens rclone's configuration wizard. You choose the provider and complete
+its authentication; these commands are setup examples, not connected accounts.
+If rclone is missing, cairn downloads a pinned, checksum-checked copy to
+`${XDG_DATA_HOME:-$HOME/.local/share}/cairn/bin/rclone`. `cairn cloud setup` runs
+that copy directly, so you do not need to put its directory on PATH. Rclone
+keeps its own configuration and honors its normal environment, including
+`RCLONE_CONFIG`. To invoke the downloaded copy yourself:
+
+```sh
+"${XDG_DATA_HOME:-$HOME/.local/share}/cairn/bin/rclone" config
+```
+
+Cloud setup does not change cairn's current repository or timers. If `init`
+cannot find or connect to the remote, it leaves the existing configuration,
+timers, and repository password in place and removes any newly generated
+password. Check the remote with `cairn cloud setup`, then retry `init`.
 
 Google Drive uses rclone's browser authorization flow and currently requires your own Google API client ID; follow the [Drive setup guide](https://rclone.org/drive/#making-your-own-client-id). For direct SMB access, the first path segment is the share name, as described in the [rclone SMB guide](https://rclone.org/smb/).
 
