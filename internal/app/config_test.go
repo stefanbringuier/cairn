@@ -78,7 +78,8 @@ func TestLoadBackupScopeAndExcludeStaleManifests(t *testing.T) {
 	for _, tc := range []struct{ field, want string }{
 		{"", scopeMachine}, {`,"backup_scope":"data-only"`, scopeDataOnly}, {`,"backup_scope":"typo"`, ""},
 	} {
-		if err := os.WriteFile(configFile(), []byte(`{"host":"demo"`+tc.field+`}`), 0o600); err != nil {
+		fixture := `{"target":"/repo","repo":"/repo","host":"demo","snapshot":{"every":"1h","keep":"24h","paths":["/home/demo"]},"backup":{"every":"daily","keep":"7d","paths":["/home/demo"]}`
+		if err := os.WriteFile(configFile(), []byte(fixture+tc.field+`}`), 0o600); err != nil {
 			t.Fatal(err)
 		}
 		c, err := loadConfig()
@@ -91,8 +92,12 @@ func TestLoadBackupScopeAndExcludeStaleManifests(t *testing.T) {
 		if err != nil || c.BackupScope != tc.want {
 			t.Fatalf("scope %q: %+v, %v", tc.field, c, err)
 		}
-		if got := slices.Contains(c.excludeArgs(), globEscape(manifestDir())); got != (tc.want == scopeDataOnly) {
-			t.Fatalf("manifest exclusion: %v", c.excludeArgs())
+		excludes, err := c.excludeArgs()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := slices.Contains(excludes, globEscape(manifestDir())); got != (tc.want == scopeDataOnly) {
+			t.Fatalf("manifest exclusion: %v", excludes)
 		}
 	}
 }

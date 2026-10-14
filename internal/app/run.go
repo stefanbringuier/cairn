@@ -115,6 +115,9 @@ func runJob(c Config, kind string, tty bool) error {
 		return err
 	}
 	defer release()
+	if err := os.MkdirAll(stateDir(), 0o700); err != nil {
+		return err
+	}
 
 	paths := c.job(kind).Paths
 	if kind == "backup" && c.backupScope() == scopeMachine {
@@ -130,12 +133,16 @@ func runJob(c Config, kind string, tty bool) error {
 	if len(existing) == 0 {
 		return fmt.Errorf("none of the %s paths exist: %s", kind, strings.Join(paths, ", "))
 	}
+	excludes, err := c.excludeArgs()
+	if err != nil {
+		return err
+	}
 	tags := []string{"--tag", kind}
 	if kind == "backup" && c.backupScope() == scopeDataOnly {
 		tags = append(tags, "--tag", scopeDataOnly)
 	}
 	args := slices.Concat([]string{"backup", "--json", "--host", c.Host, "--one-file-system", "--retry-lock", "10m"}, tags,
-		c.excludeArgs(), []string{"--"}, existing)
+		excludes, []string{"--"}, existing)
 
 	sum, unreadable, err := r.backupRun(kind, args, tty)
 	partial := false
@@ -216,9 +223,10 @@ type JobStatus struct {
 }
 
 type Status struct {
+	BackupScope string    `json:"backup_scope"`
+	Profile     string    `json:"profile"`
 	Target      string    `json:"target"`
 	Host        string    `json:"host"`
-	BackupScope string    `json:"backup_scope"`
 	Online      bool      `json:"online"`
 	Error       string    `json:"error,omitempty"`
 	Scheduler   bool      `json:"scheduler"`
@@ -256,7 +264,7 @@ func (s *Status) live() {
 }
 
 func getStatus(c Config) Status {
-	st := Status{Target: redact(c.Target), Host: c.Host, BackupScope: c.backupScope(), Scheduler: true}
+	st := Status{Profile: selectedProfile, BackupScope: c.backupScope(), Target: redact(c.Target), Host: c.Host, Scheduler: true}
 	var snaps []Snap
 	r, err := newRestic(c)
 	if err == nil {

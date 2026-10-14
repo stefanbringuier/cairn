@@ -149,7 +149,51 @@ try {
   await page.evaluate(() => {
     terminal.reset();
     terminal.resize(110, 32);
-    document.querySelector(".label").textContent = "cairn · data-only setup example";
+    document.querySelector(".label").textContent = "cairn --profile nas · demo-laptop";
+  });
+  startFixture("profile");
+  await ready("BACKUP TARGET · nas");
+  await ready("4 kept");
+  await grab("profile-dashboard");
+  await key("r");
+  await ready("items");
+  await key("/");
+  await ready("Filter:");
+  await key("snapshot");
+  await ready("Filter: snapshot");
+  await key("\r");
+  await ready("Saved versions");
+  await ready("filtered");
+  await key("\u001b");
+  const clearDeadline = Date.now() + 10000;
+  while (Date.now() < clearDeadline) {
+    await writes;
+    if (await page.evaluate(() => !screenText().includes("filtered"))) break;
+    await page.waitForTimeout(100);
+  }
+  if (await page.evaluate(() => screenText().includes("filtered"))) {
+    throw new Error("Named-profile list filter did not clear with Escape");
+  }
+  await key("\u001b");
+  await ready("BACKUP TARGET · nas");
+  for (const cols of [40, 60, 110]) {
+    await page.evaluate((width) => terminal.resize(width, 24), cols);
+    fixture.stdin.write(JSON.stringify({ resize: [24, cols] }) + "\n");
+    await ready("FULL BACKUPS");
+    await ready("quit");
+    if (cols === 40) await grab("profile-small");
+    await key("?");
+    await ready("A saved version.");
+    await key("\u001b");
+    await ready("BACKUP TARGET · nas");
+  }
+  console.log("Verified named-profile keyboard filtering, long target paths, help/back and 40/60/110×24 resizing.");
+  await key("q");
+  await stopFixture();
+  await page.evaluate(() => {
+    terminal.reset();
+    terminal.resize(110, 32);
+    document.querySelector(".label").textContent = "cairn --profile cloud · data-only setup example";
   });
   startFixture("data-only");
   await ready("DATA BACKUPS");

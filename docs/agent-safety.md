@@ -31,7 +31,7 @@ Replacing the live video requires approval for that exact version and path.
 |---|---|
 | `history`, `diff` | Read saved snapshots without repository locks. Diff refuses reported read errors or incomplete output |
 | `recover` | Stage a file or folder, then publish only to an absent destination using atomic no-replace rename. Refuse existing files, directories, or symlinks, including ones created during export. Failed exports leave no published partial copy |
-| `restore`, including `--to` | Save existing destination contents in a complete, verified safety snapshot before replacement. Include normally excluded files. Refuse incomplete safety backups, symbolic-link destinations, and overlap with the local backup repository or active cairn configuration/password |
+| `restore`, including `--to` | Save existing destination contents in a complete, verified safety snapshot before replacement. Include normally excluded files. Refuse incomplete safety backups, symbolic-link destinations, and overlap with any configured local repository or the entire cairn configuration/password root |
 | restore into a missing path | Publish a staged copy without replacing a destination that appears during recovery |
 
 `recover --to` means the exact new name, unlike `restore --to`, which accepts
@@ -39,6 +39,16 @@ an existing directory as a container. Recover never accepts `-y`. Unsupported
 atomic rename operations fail closed; choose a supported local recovery area.
 Keep the printed undo command when restoring; it is available before CLI
 replacement begins and in TUI failure messages after a safety copy succeeds.
+
+With named profiles, explicitly prefix inspection and recovery commands with
+`cairn --profile NAME`; omission always means the legacy `default` profile.
+Check `cairn profiles --json` and the selected profile's `status --json` first.
+Undo commands retain named-profile selection. Profiles have separate repository
+passwords and state, but profile names are selectors, not permission boundaries.
+Rebuild selects one repository and recipe while restoring the entire home,
+including saved configuration and unit files for other profiles. Its broad
+write scope requires authorization for the whole rebuild; inspect all profiles
+and their schedules afterward.
 
 A safety snapshot does not freeze your filesystem. Changes made between the
 safety copy and replacement can still be lost. Pause editors and other writers

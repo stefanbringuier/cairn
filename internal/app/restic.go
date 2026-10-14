@@ -205,7 +205,7 @@ func repoFor(target string) (string, error) {
 func rcloneRepoFor(target string) (string, error) {
 	name, _, ok := strings.Cut(target, ":")
 	if !ok || name == "" {
-		return "", fmt.Errorf("rclone target must be remote:path: configure a remote with `cairn cloud setup`")
+		return "", fmt.Errorf("rclone target must be remote:path: configure a remote with `%s cloud setup`", profileCommand())
 	}
 	rclone, err := tool("rclone")
 	if err != nil {
@@ -213,10 +213,10 @@ func rcloneRepoFor(target string) (string, error) {
 	}
 	out, err := exec.Command(rclone, "listremotes").Output() // #nosec G204 -- our rclone binary
 	if err != nil {
-		return "", fmt.Errorf("can't read rclone remotes: run `cairn cloud setup`, then rerun cairn init")
+		return "", fmt.Errorf("can't read rclone remotes: run `%s cloud setup`, then rerun `%s init`", profileCommand(), profileCommand())
 	}
 	if !slices.Contains(strings.Fields(string(out)), name+":") {
-		return "", fmt.Errorf("rclone remote is not configured: create it with `cairn cloud setup`, then rerun cairn init")
+		return "", fmt.Errorf("rclone remote is not configured: create it with `%s cloud setup`, then rerun `%s init`", profileCommand(), profileCommand())
 	}
 	return "rclone:" + target, nil
 }

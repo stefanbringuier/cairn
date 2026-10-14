@@ -17,6 +17,7 @@ const usage = `cairn — a way back to your files, with restic as your trail
   cairn diff <from>     See changed files between saved versions.
   cairn recover <path>  Export a new copy; never overwrite an existing path.
   cairn status          See the destination, schedules, and backup health.
+  cairn profiles        List profiles, destinations, and enabled timers.
   cairn set             See your settings; add a key and value to change one.
   cairn rebuild         Recover your home and walk through reinstalling packages.
   cairn targets         See local, NAS, and cloud destination setup examples.
@@ -25,6 +26,8 @@ const usage = `cairn — a way back to your files, with restic as your trail
   cairn --version       Print the installed version.
 
 Try cairn help restore or cairn restore --help for examples and flags.
+Select a profile before the command: cairn --profile nas status.
+Omitting --profile always uses default; existing setups keep their settings.
 In the dashboard: ? explains the basics; t shows storage options.
 Linux. Automatic schedules use systemd user timers; sources are local paths.
 `
@@ -79,8 +82,8 @@ folder; the file can have any extension, and it can have been deleted.
 
 Existing destinations are saved first, including with --to; an incomplete
 safety copy aborts the restore. Symbolic-link destinations are refused.
-Active cairn config/password and local repository overlaps are also refused
-to keep access to your undo snapshot. Use recover for copies of those paths.
+All profile config/passwords (including external symlink targets) and local
+repository overlaps are refused to keep undo access. Use recover for copies.
 For inspection or agent work, use cairn recover to export a new copy.
 In-place restores save the current version first and print an undo command.
 Newer files outside the snapshot are kept. Without a terminal, a confirmation
@@ -101,7 +104,7 @@ the first snapshot. Run cairn targets for NAS and cloud setup instructions.
   --password  Protect backups with a password; save it off this machine.
   --path      Use this source instead of your home; repeat to add more.
   --data-only Save configured sources without system folders or rebuild lists.
-  -y          Accept the same-disk warning without asking.
+  -y          Accept same-disk and existing-profile repository changes.
 
 New setups default to machine scope: backups add /etc, /usr/share/keyrings,
 and package manifests, even with --path. Data-only scope uses just the paths
@@ -113,6 +116,30 @@ Changing an existing scope requires explicit --path sources. Use
 Mounted shares use a local path. Cloud targets need credentials configured
 first. Password protection is off by default.
 Without systemd user timers, run snapshots and backups manually.
+Use cairn --profile NAME init <target> to add another destination. Reinitializing
+one profile keeps its settings and password. Changing its repository asks first;
+old snapshots stay in the old repository. Use a separate repository per profile.
+`
+	case "profiles":
+		return `cairn profiles [--json]
+
+Each profile's backup_scope is machine or data-only.
+List every configured profile, its target, configured frequencies and systemd
+timer names. Enabled/disabled reports actual timer state; unknown means systemd
+is unavailable. --json returns an array with name, target, snapshot and backup.
+Each job has {every, timer, enabled}; enabled is true, false, or null when unknown.
+
+  cairn --profile nas init /mnt/nas/cairn
+  cairn --profile cloud init gdrive:backups --data-only --path ~/Projects --password
+  cairn profiles --json
+  cairn --profile nas status
+  cairn --profile cloud
+
+Names use 1–48 lowercase letters, digits or hyphens, starting and ending with a
+letter or digit. default keeps the original files and timer names. Each other
+profile has its own settings, password and state under cairn/profiles/NAME.
+Selection must come before the command; it is never saved as an active choice.
+Backup jobs share one lock. Profiles need separate repositories for retention.
 `
 	case "targets":
 		return "cairn targets [--json]\n\n--json prints structured setup guides for scripts and agents.\n\n" + targetGuide()
@@ -127,7 +154,8 @@ You choose the provider and complete authentication in rclone and your browser.
   cairn init gdrive:backups --password    Connect after setup is complete.
 
 No cairn repository settings or timers change during setup. No extra arguments
-or flags are accepted. Rclone keeps its own configuration and credentials.
+or flags are accepted. Rclone keeps shared configuration and credentials;
+--profile selects cairn settings, not a separate rclone account.
 Downloaded binaries live in ${XDG_DATA_HOME:-$HOME/.local/share}/cairn/bin;
 cloud setup also works when that directory is not on PATH.
 `
@@ -190,7 +218,7 @@ daily, weekly, off. Lists: +value adds, -value removes, a,b replaces.
 backup.scope is shown for clarity; change scope with init, not set.
 `
 	case "rebuild":
-		return "cairn rebuild [--host <old-host>] [--from <old-home>] [-y]\n\nRecover your old home on a new Linux machine, stage old system settings for\nreference, and walk through reinstalling packages. Each install step asks\nfirst and may need sudo. -y accepts those steps without asking.\nData-only configurations are refused; use history, recover, or restore.\nBackups tagged data-only are never selected as a machine rebuild recipe.\n"
+		return "cairn rebuild [--host <old-host>] [--from <old-home>] [-y]\n\nRecover your old home on a new Linux machine, stage old system settings for\nreference, and walk through reinstalling packages. Each install step asks\nfirst and may need sudo. -y accepts those steps without asking.\nData-only configurations are refused; use history, recover, or restore.\nBackups tagged data-only are never selected as a machine rebuild recipe.\n\n--profile selects the source repository and recipe, but rebuild restores the\nentire home, including saved config and unit files for other profiles. Inspect\ncairn profiles and every profile's settings and schedules afterward.\n"
 	default:
 		return usage
 	}
@@ -202,6 +230,10 @@ func printHelp(w io.Writer, cmd string) error {
 			return err
 		}
 	}
-	_, err := fmt.Fprint(w, commandHelp(cmd))
+	text := commandHelp(cmd)
+	if cmd != "" {
+		text += "\nSelect a profile before the command: cairn --profile NAME " + cmd + " …\nOmitting --profile always selects default. List destinations and timers with cairn profiles.\n"
+	}
+	_, err := fmt.Fprint(w, text)
 	return err
 }

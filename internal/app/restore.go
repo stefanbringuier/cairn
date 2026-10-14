@@ -107,7 +107,7 @@ func resolve(r Restic, c Config, p, at string) (Snap, Node, error) {
 	}
 	cands := candidates(snaps, p, cutoff, id)
 	if len(cands) == 0 {
-		return Snap{}, Node{}, fmt.Errorf("no snapshot up to %s covers %s (cairn status shows what's backed up)", at, tildify(p))
+		return Snap{}, Node{}, fmt.Errorf("no snapshot up to %s covers %s (%s status shows what's backed up)", at, tildify(p), profileCommand())
 	}
 	if nodes, err := r.ls(cands[0].ID, p); err != nil {
 		return Snap{}, Node{}, err
@@ -125,7 +125,7 @@ func resolve(r Restic, c Config, p, at string) (Snap, Node, error) {
 			}
 		}
 	}
-	return Snap{}, Node{}, fmt.Errorf("%s isn't in the snapshots up to %s (try `cairn history %s`)", tildify(p), at, tildify(p))
+	return Snap{}, Node{}, fmt.Errorf("%s isn't in the snapshots up to %s (try `%s history %s`)", tildify(p), at, profileCommand(), tildify(p))
 }
 
 // includeArgs restores just p (file or dir) out of s into target; extra flags go before "--".
@@ -202,9 +202,12 @@ func restoreInPlace(r Restic, c Config, s Snap, n Node, p string) (string, error
 
 func undoCommand(path, id string) string {
 	if clean(path) != path {
+		if selectedProfile != "default" {
+			return "profile " + selectedProfile + ": snapshot " + id + " (restore using the original path)"
+		}
 		return "snapshot " + id + " (restore using the original path)"
 	}
-	return "cairn restore --at " + id + " -y -- '" + strings.ReplaceAll(path, "'", "'\\''") + "'"
+	return profileCommand() + " restore --at " + id + " -y -- '" + strings.ReplaceAll(path, "'", "'\\''") + "'"
 }
 
 // saveBeforeRestore must protect all current content, even normally excluded files.
@@ -215,24 +218,30 @@ func saveBeforeRestore(r Restic, c Config, path string) (string, error) {
 		return "", err
 	}
 	if !missing && info.Mode()&os.ModeSymlink != 0 {
-		return "", fmt.Errorf("refusing to replace a symbolic link: use cairn recover with a new destination")
+		return "", fmt.Errorf("refusing to replace a symbolic link: use %s recover with a new destination", profileCommand())
 	}
 	root, err := canonicalPath(path)
 	if err != nil {
 		return "", err
 	}
-	for _, control := range []string{configFile(), passwordFile()} {
-		if resolved, err := canonicalPath(control); err == nil {
-			control = resolved
+	profiles, err := configuredProfiles()
+	if err != nil {
+		return "", err
+	}
+	for _, control := range profileControls(profiles) {
+		resolved, err := canonicalControl(control)
+		if err != nil {
+			return "", fmt.Errorf("cannot resolve cairn configuration/password, nothing restored: %w", err)
 		}
-		if withinPath(control, root) {
-			return "", fmt.Errorf("destination contains active cairn configuration or password; use cairn recover to keep undo access available")
+		control = resolved
+		if withinPath(control, root) || withinPath(root, control) {
+			return "", fmt.Errorf("destination overlaps cairn configuration or passwords; use %s recover to keep undo access available", profileCommand())
 		}
 	}
-	if filepath.IsAbs(c.Repo) {
-		repo, repoErr := canonicalPath(c.Repo)
+	for _, configuredRepo := range localRepositories(c, profiles) {
+		repo, repoErr := canonicalPath(configuredRepo)
 		if repoErr == nil && (withinPath(root, repo) || withinPath(repo, root)) {
-			return "", fmt.Errorf("restore destination overlaps the backup repository; use cairn recover with a new destination")
+			return "", fmt.Errorf("restore destination overlaps the backup repository; use %s recover with a new destination", profileCommand())
 		}
 	}
 	if missing {

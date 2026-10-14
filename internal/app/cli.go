@@ -98,6 +98,13 @@ func parse(fs *flag.FlagSet, args []string) []string {
 
 // Run dispatches a command and returns its process exit status.
 func Run(args []string, version string) int {
+	name, args, err := selectProfile(args)
+	if err != nil {
+		return reportError(err)
+	}
+	previous := selectedProfile
+	selectedProfile = name
+	defer func() { selectedProfile = previous }()
 	cmd := "dashboard"
 	if len(args) > 0 {
 		cmd, args = args[0], args[1:]
@@ -117,11 +124,10 @@ func Run(args []string, version string) int {
 			return reportError(printHelp(os.Stdout, cmd))
 		}
 	}
-	fs := flag.NewFlagSet("cairn "+cmd, flag.ExitOnError)
+	fs := flag.NewFlagSet(profileCommand()+" "+cmd, flag.ExitOnError)
 	fs.Usage = func() { _ = printHelp(os.Stderr, cmd) }
 	yes := fs.Bool("y", false, "don't ask for confirmation")
 	asJSON := fs.Bool("json", false, "machine-readable output")
-	var err error
 	switch cmd {
 	case "--skill", "skill":
 		fmt.Print(skillMD)
@@ -139,9 +145,15 @@ func Run(args []string, version string) int {
 		} else {
 			err = printHelp(os.Stdout, "targets")
 		}
+	case "profiles":
+		if len(parse(fs, args)) != 0 {
+			err = &cliError{exitNeedsYes, "usage: cairn profiles [--json]"}
+		} else {
+			err = cmdProfiles(*asJSON)
+		}
 	case "cloud":
 		if len(args) != 1 || args[0] != "setup" {
-			err = &cliError{exitNeedsYes, "usage: cairn cloud setup"}
+			err = &cliError{exitNeedsYes, "usage: " + profileCommand() + " cloud setup"}
 		} else {
 			err = cmdCloudSetup()
 		}
@@ -152,7 +164,7 @@ func Run(args []string, version string) int {
 		fs.Func("path", "back up this path instead of $HOME (repeatable)", func(v string) error { paths = append(paths, expand(v)); return nil })
 		pos := parse(fs, args)
 		if len(pos) != 1 {
-			err = &cliError{exitNeedsYes, "usage: cairn init <target> [--password] [--data-only] [--path P]... [-y]"}
+			err = &cliError{exitNeedsYes, "usage: " + profileCommand() + " init <target> [--password] [--data-only] [--path P]... [-y]"}
 			break
 		}
 		var requestedScope *bool
@@ -194,7 +206,7 @@ func Run(args []string, version string) int {
 		pos := parse(fs, args)
 		var c Config
 		if len(pos) != 1 {
-			err = &cliError{exitNeedsYes, "usage: cairn restore <path> [--at A] [--to T] [-y]"}
+			err = &cliError{exitNeedsYes, "usage: " + profileCommand() + " restore <path> [--at A] [--to T] [-y]"}
 		} else if c, err = loadConfig(); err == nil {
 			err = cmdRestore(c, pos[0], *at, *to, *yes)
 		}
@@ -202,7 +214,7 @@ func Run(args []string, version string) int {
 		pos := parse(fs, args)
 		var c Config
 		if len(pos) != 1 {
-			err = &cliError{exitNeedsYes, "usage: cairn history <path> [--json]"}
+			err = &cliError{exitNeedsYes, "usage: " + profileCommand() + " history <path> [--json]"}
 		} else if c, err = loadConfig(); err == nil {
 			err = cmdHistory(c, expand(pos[0]), *asJSON)
 		}
@@ -212,7 +224,7 @@ func Run(args []string, version string) int {
 		pos := parse(fs, args)
 		var c Config
 		if len(pos) < 1 || len(pos) > 2 {
-			err = &cliError{exitNeedsYes, "usage: cairn diff <from> [<to>] [--path P] [--metadata] [--json]"}
+			err = &cliError{exitNeedsYes, "usage: " + profileCommand() + " diff <from> [<to>] [--path P] [--metadata] [--json]"}
 		} else if c, err = loadConfig(); err == nil {
 			to := "latest"
 			if len(pos) == 2 {
@@ -228,7 +240,7 @@ func Run(args []string, version string) int {
 		fs.Visit(func(f *flag.Flag) { hasYes = hasYes || f.Name == "y" })
 		var c Config
 		if len(pos) != 1 || hasYes {
-			err = &cliError{exitNeedsYes, "usage: cairn recover <path> [--at A] [--to T] [--json] (never overwrites; no -y)"}
+			err = &cliError{exitNeedsYes, "usage: " + profileCommand() + " recover <path> [--at A] [--to T] [--json] (never overwrites; no -y)"}
 		} else if c, err = loadConfig(); err == nil {
 			err = cmdRecover(c, pos[0], *at, *to, *asJSON)
 		}
@@ -280,16 +292,16 @@ func cmdCloudSetup() error {
 	cmd := exec.Command(bin, "config") // #nosec G204 -- our rclone binary, fixed configuration command
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("rclone configuration failed: rerun `cairn cloud setup`")
+		return fmt.Errorf("rclone configuration failed: rerun `%s cloud setup`", profileCommand())
 	}
 	return nil
 }
 
-func cmdInit(target string, password bool, paths []string, yes bool, dataOnly *bool) (initErr error) {
+func cmdInit(target string, password bool, paths []string, yes bool, dataOnly *bool) error {
 	c, err := loadConfig()
 	existing := err == nil
 	if err != nil {
-		if _, statErr := os.Stat(configFile()); !os.IsNotExist(statErr) {
+		if !errors.Is(err, os.ErrNotExist) {
 			return err // invalid existing settings must not be silently replaced
 		}
 		c = defaultConfig()
@@ -314,14 +326,27 @@ func cmdInit(target string, password bool, paths []string, yes bool, dataOnly *b
 				return err
 			}
 		}
-	} else if !password && !strings.HasPrefix(repo, "rest:") {
-		warn("no password: anyone who can read " + redact(target) + " can read your files (use --password for cloud targets)")
+	}
+	if err := checkProfileRepository(repo); err != nil {
+		return err
+	}
+	if c.Repo != "" && repositoryIdentity(c.Repo) != repositoryIdentity(repo) && !yes {
+		if err := confirm("Change the repository for profile "+selectedProfile+"?",
+			"Future runs and retention use the new repository. Existing snapshots stay in the old repository. The password and other settings are reused. Use a new profile to keep both destinations scheduled.", "Change it"); err != nil {
+			return err
+		}
+	}
+	if !filepath.IsAbs(repo) && !password && !strings.HasPrefix(repo, "rest:") {
+		if _, err := os.Stat(passwordFile()); os.IsNotExist(err) {
+			warn("no password: anyone who can read " + clean(redact(target)) + " can read your files (use --password for cloud targets)")
+		}
 	}
 	c.Target, c.Repo, c.Since = target, repo, time.Now()
 	created, shown := false, ""
+	saved := false
 	defer func() {
-		if initErr != nil && created {
-			_ = os.Remove(passwordFile()) // a failed connection must not change active credentials
+		if created && !saved {
+			os.Remove(passwordFile())
 		}
 	}()
 	if password {
@@ -350,7 +375,7 @@ func cmdInit(target string, password bool, paths []string, yes bool, dataOnly *b
 	}
 	if err != nil {
 		if strings.HasPrefix(repo, "rclone:") && codeOf(err) != exitBadPass {
-			return fmt.Errorf("can't reach the rclone destination: check your remote and credentials with `cairn cloud setup`, then rerun cairn init")
+			return fmt.Errorf("can't reach the rclone destination: check your remote and credentials with `%s cloud setup`, then rerun `%s init`", profileCommand(), profileCommand())
 		}
 		return err
 	}
@@ -367,14 +392,15 @@ func cmdInit(target string, password bool, paths []string, yes bool, dataOnly *b
 	if err := c.save(); err != nil {
 		return err
 	}
+	saved = true
 	if err := applySchedule(c); err != nil {
-		warn(err.Error() + " (scheduling off; run cairn snapshot/backup by hand)")
+		warn(err.Error() + " (scheduling unavailable; run `" + profileCommand() + " snapshot` or `" + profileCommand() + " backup` by hand)")
 	} else {
 		if hint := enableLinger(); hint != "" {
 			warn(hint)
 		}
 		if err := startJob("snapshot"); err == nil {
-			note("first snapshot running in the background: watch it with `cairn`")
+			note("first snapshot running in the background: watch it with `" + profileCommand() + "`")
 		}
 	}
 	lipgloss.Println(renderSettings(c))
@@ -384,8 +410,13 @@ func cmdInit(target string, password bool, paths []string, yes bool, dataOnly *b
 // setupPassword makes sure the password file exists: an existing one is used as is (that's how you
 // connect to a passworded repo), otherwise it's typed (TTY) or generated. shown is a generated password.
 func setupPassword() (created bool, shown string, err error) {
+	if err := checkProfileDirectory(selectedProfile); err != nil {
+		return false, "", err
+	}
 	if _, err := os.Stat(passwordFile()); err == nil {
 		return false, "", nil
+	} else if !os.IsNotExist(err) {
+		return false, "", err
 	}
 	var pw string
 	if isTTY() {
@@ -397,14 +428,22 @@ func setupPassword() (created bool, shown string, err error) {
 	}
 	if pw == "" {
 		b := make([]byte, 24)
-		_, _ = rand.Read(b)
+		if _, err := rand.Read(b); err != nil {
+			return false, "", err
+		}
 		pw = base64.RawURLEncoding.EncodeToString(b)
 		shown = pw
 	}
 	if err := os.MkdirAll(configDir(), 0o700); err != nil {
 		return false, "", err
 	}
-	return true, shown, os.WriteFile(passwordFile(), []byte(pw+"\n"), 0o600)
+	f, err := os.OpenFile(passwordFile(), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return false, "", err
+	}
+	_, writeErr := f.WriteString(pw + "\n")
+	closeErr := f.Close()
+	return true, shown, errors.Join(writeErr, closeErr)
 }
 
 func cmdSet(c Config, pos []string, asJSON bool) error {
@@ -421,7 +460,7 @@ func cmdSet(c Config, pos []string, asJSON bool) error {
 			}
 		}
 	} else if len(pos) != 0 {
-		return &cliError{exitNeedsYes, "usage: cairn set <key> <value>  (keys: " + strings.Join(setKeys, ", ") + ")"}
+		return &cliError{exitNeedsYes, "usage: " + profileCommand() + " set <key> <value>  (keys: " + strings.Join(setKeys, ", ") + ")"}
 	}
 	if asJSON {
 		b, _ := json.MarshalIndent(c, "", "  ")
@@ -457,13 +496,13 @@ func cmdHistory(c Config, p string, asJSON bool) error {
 		}
 		lipgloss.Println(line)
 	}
-	lipgloss.Println(dim.Render("  restore one: cairn restore " + tildify(p) + " --at <snapshot>"))
+	lipgloss.Println(dim.Render("  restore one: " + profileCommand() + " restore " + tildify(p) + " --at <snapshot>"))
 	return nil
 }
 
 func renderSettings(c Config) string {
 	row := func(k, v string) string { return "  " + dim.Render(fmt.Sprintf("%-15s", k)) + v }
-	lines := []string{accent.Render("cairn") + "  " + redact(c.Target) + dim.Render("  host "+c.Host)}
+	lines := []string{accent.Render("cairn") + dim.Render("  profile "+selectedProfile) + "  " + clean(redact(c.Target)) + dim.Render("  host "+clean(c.Host))}
 	scope := "machine (system paths and rebuild manifests)"
 	if c.backupScope() == scopeDataOnly {
 		scope = "data-only (configured paths; no machine rebuild)"
@@ -492,7 +531,7 @@ func renderStatus(st Status) string {
 	if !st.Online {
 		online = bad.Render("○ offline") + dim.Render(" "+st.Error)
 	}
-	lines := []string{accent.Render("cairn") + "  " + st.Target + "  " + online + dim.Render("  host "+st.Host), ""}
+	lines := []string{accent.Render("cairn") + dim.Render("  profile "+clean(st.Profile)) + "  " + clean(st.Target) + "  " + online + dim.Render("  host "+clean(st.Host)), ""}
 	for _, kind := range []string{"snapshot", "backup"} {
 		j := *st.job(kind)
 		head := fmt.Sprintf("  %-9s %s", kind, dim.Render("every "+j.Every+" · keep "+j.Keep))
@@ -527,7 +566,7 @@ func renderStatus(st Status) string {
 		lines = append(lines, head, "            "+strings.Join(parts, dim.Render(" · ")))
 	}
 	if !st.Scheduler {
-		lines = append(lines, "", amber.Render("! ")+dim.Render("systemd user timers unavailable: run cairn snapshot/backup yourself"))
+		lines = append(lines, "", amber.Render("! ")+dim.Render("systemd user timers unavailable: run "+profileCommand()+" snapshot/backup yourself"))
 	}
 	return strings.Join(lines, "\n")
 }

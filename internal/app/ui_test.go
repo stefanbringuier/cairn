@@ -91,7 +91,7 @@ func TestGuidesFitSmallTerminals(t *testing.T) {
 func TestDashboardFitsTerminalWidth(t *testing.T) {
 	now := time.Now()
 	job := JobStatus{Every: "daily", Keep: "7d,4w,12m", Count: 21, Last: &now, Next: &now, LastID: "1234abcd"}
-	st := Status{Target: "/mnt/" + strings.Repeat("long-backup-path/", 12), Online: true, Scheduler: true, Snapshot: job, Backup: job}
+	st := Status{Profile: strings.Repeat("a", 48), Target: "/mnt/" + strings.Repeat("long-backup-path/", 12), Online: true, Scheduler: true, Snapshot: job, Backup: job}
 	for _, width := range []int{40, 60, 80, 110, 160} {
 		view := renderDashboard(st, uiWidth(width), 32)
 		if lipgloss.Width(view) > width-4 {

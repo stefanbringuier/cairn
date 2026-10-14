@@ -32,6 +32,7 @@ func uiRow(left, right string, width int) string {
 
 func uiHeader(section, host string, width int) string {
 	brand := accent.Render(" ▰▰▰   cairn")
+	brand += dim.Render(" · " + selectedProfile)
 	if section != "" {
 		brand += dim.Render("  /  " + section)
 	}
@@ -226,7 +227,11 @@ func dashboardLayout(st Status, width int, compact bool) string {
 	if compact {
 		inside = width
 	}
-	target := uiRow(dim.Render("BACKUP TARGET"), connection, inside) + "\n" + trimUI(ink.Render(clean(st.Target)), inside)
+	label := "BACKUP TARGET"
+	if st.Profile != "" {
+		label += " · " + clean(st.Profile)
+	}
+	target := uiRow(trimUI(dim.Render(label), max(inside-lipgloss.Width(connection)-2, 1)), connection, inside) + "\n" + trimUI(ink.Render(clean(st.Target)), inside)
 	if !st.Online && st.Error != "" {
 		target += "\n" + trimUI(bad.Render(clean(st.Error)), inside)
 	}
