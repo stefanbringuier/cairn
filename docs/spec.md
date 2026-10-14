@@ -15,12 +15,12 @@ cairn is a thin CLI + TUI over restic. restic stores the data, systemd user time
 | default keep | `24h,7d,4w` | `7d,4w,12m` |
 | after run | `forget` | write manifests before the run; `forget --prune` after |
 
-- **Target**: one restic repo per user, shared by any number of hosts (snapshot queries and writes are scoped by host). There's no password by default (`--insecure-no-password`); `init --password` uses `~/.config/cairn/password`. Accepted forms:
+- **Target**: one restic repo per profile, shared by any number of hosts (snapshot queries and writes are scoped by host). There's no password by default (`--insecure-no-password`); `init --password` uses the selected profile's password file. Accepted forms:
   - a path (a mount from fstab, a NAS, a USB disk)
   - `remote:path`, an existing rclone remote (becomes `rclone:remote:path`)
   - a restic URL (`sftp:`, `s3:`, `b2:`, `rest:`, `azure:`, `gs:`, `swift:`, `rclone:`)
 - **Manifests**: `~/.local/state/cairn/manifests/*.txt`, one name per line, rewritten before every backup for these managers when present: apt, snap, flatpak, brew, uv tools, pipx, cargo, npm -g. `crontab -l` is saved as well.
-- **Excludes**: a built-in list of regenerable directories (venvs, caches, package stores, trash, container storage), plus `--exclude-caches --one-file-system`, user extras, the target (when it's local), and cairn's own rebuild scratch directory. Dotfiles and lockfiles are always kept.
+- **Excludes**: a built-in list of regenerable directories (venvs, caches, package stores, trash, container storage), plus `--exclude-caches --one-file-system`, user extras, every configured local repository, and every profile's rebuild scratch directory. Dotfiles and lockfiles are always kept.
 - **pre-restore**: before replacing an existing destination, including `restore --to`, cairn snapshots its current contents (tag `pre-restore`) and keeps those snapshots for 30 days.
 
 ## Commands
@@ -29,6 +29,7 @@ cairn is a thin CLI + TUI over restic. restic stores the data, systemd user time
 | `cairn` | TUI dashboard on a TTY; otherwise `status` |
 | `cairn init <target> [--password] [--path P]...` | create or connect the repo, write the config, install the timers, enable linger, start the first snapshot |
 | `cairn status [--json]` | target online, last/next/count/result for each job |
+| `cairn profiles [--json]` | list configured profiles, targets, frequencies, timer names and whether each timer is enabled |
 | `cairn snapshot` / `cairn backup` | run now (the timers run these) |
 | `cairn restore <path> [--at A] [--to T] [-y]` | restore in place (preview + confirm) or to T |
 | `cairn history <path> [--json]` | versions of a path |
@@ -45,6 +46,48 @@ cairn is a thin CLI + TUI over restic. restic stores the data, systemd user time
 - `keep`: comma list of `<n>h <n>d <n>w <n>m <n>y`, plus a bare `<n>` for `--keep-last n`.
 - Lists: `+x` adds, `-x` removes, and `a,b` replaces.
 - Relative restore paths use the current directory. A deleted file can be restored without recreating it first. `-y` bypasses confirmation while preserving the safety snapshot for an existing path.
+
+## Profiles
+
+Select a profile with `cairn --profile NAME <command>` (or `--profile=NAME`),
+before the command. With no command, it opens that profile's dashboard. Selection
+applies to init, status, settings, manual runs, history, diff, recover, restore,
+and rebuild. There is no saved active choice: omission always selects `default`.
+Names contain 1–48 lowercase ASCII letters, digits, or hyphens, begin with a
+letter or digit, and end with a letter or digit. Invalid names exit 2 before
+accessing configuration. Arguments after `--` remain literal.
+
+The reserved `default` profile uses the existing config, password, state files,
+and `cairn-{snapshot,backup}` units in place. Existing installations need no
+file moves, credential changes, or timer replacement. Named profiles use
+`$XDG_CONFIG_HOME/cairn/profiles/NAME/{config.json,password}` and
+`$XDG_STATE_HOME/cairn/profiles/NAME/` for manifests, progress, pruning state,
+and rebuild scratch. Shared dependency binaries stay under `$XDG_DATA_HOME/cairn/bin`.
+Default XDG roots retain their usual home-directory locations.
+
+Init only changes the selected profile. It preserves that profile's schedules,
+retention and exclusions; `--path` replaces its source paths. Changing a
+configured repository needs confirmation or `-y`, because subsequent runs and
+retention use the new repository. Existing snapshots stay in the old repository;
+its password is reused, never silently replaced. Use a new name to keep both
+destinations scheduled or when they need different passwords. Invalid existing
+configuration aborts init instead of replacing it with defaults. A failed init
+keeps the old configuration and removes only a newly generated, unsaved password.
+
+Profiles JSON is an array ordered by name, each entry containing
+`{name, target, snapshot: {every, timer, enabled}, backup: {every, timer, enabled}}`.
+`enabled` is a boolean, or null if systemd cannot report it. Missing configuration
+is omitted; invalid configuration aborts the list. Status JSON adds `profile`.
+Text status, settings, and the dashboard identify the selected profile. Printed
+undo and follow-up commands retain named-profile selection.
+
+Init refuses a repository already configured by another profile (local paths
+are compared after resolving symlink aliases; remote URLs are compared as
+configured). Different profiles need distinct repositories because host/tag
+retention could otherwise delete each other's snapshots. Remote aliases must
+also refer to distinct storage; cairn cannot resolve provider-side aliases.
+Unreadable or invalid saved profiles abort backup exclusion discovery and
+restore protection checks rather than risk copying or replacing their repositories.
 
 ## Agent inspection and recovery
 
@@ -77,9 +120,11 @@ current content must be saved successfully. Partial backups, invalid summaries,
 or a missing undo snapshot abort replacement. Ordinary backup excludes do not
 apply to these safety copies. A safety copy of a directory containing the
 local backup repository is refused to avoid backing up the repository itself.
-Destinations inside that repository or containing active cairn configuration
-or its password are refused to preserve access to undo snapshots. The undo
-command uses the full snapshot ID. A missing restore destination is staged
+Destinations overlapping any configured local repository or cairn's configuration
+root (including every profile and password) are refused to preserve undo access.
+Protection also follows config/password file symlinks outside that root and
+protects their targets and containing destinations. The undo command uses the
+full snapshot ID. A missing restore destination is staged
 and atomically published without replacement, preserving native node metadata
 (full filesystem-root exports keep restic's subtree-root semantics)
 and allowing deleted symbolic links to be recreated. Existing `--to` container
@@ -142,17 +187,28 @@ A timer run against an offline target exits 0 and says so.
 - **diff**: `R diff --json --no-lock [--metadata] FROM TO`; reject reported read errors and incomplete output, filter by path boundaries, and return one structured object.
 - **history**: file: `R find --json --host H P` (exact-path matches only); dir: the covering snapshots.
 - **rebuild**:
+  - the selected profile supplies the repository and recipe; the home restore
+    can also restore saved config/unit files for other profiles, so inspect
+    every profile and schedule afterward; selection does not limit its write scope
   - `R restore S:OLDHOME --target $HOME`
   - stage `/etc` and keyrings under `~/.local/state/cairn/rebuild`
   - re-apply the config and timers
   - the confirmed steps: apt sources, `apt update`, `apt install` (filtered by `apt-cache pkgnames`), snap, flatpak, brew, uv, pipx, cargo, npm, crontab
 
 ## Scheduling
-`~/.config/systemd/user/cairn-{snapshot,backup}.{service,timer}`:
+`$XDG_CONFIG_HOME/systemd/user/cairn-{snapshot,backup}.{service,timer}` for default,
+or `cairn-NAME-{snapshot,backup}.{service,timer}` for named profiles:
 - The service is `Type=oneshot`, `Nice=19`, `IOSchedulingClass=idle`, `CPUQuota` = 50% of cores, `SuccessExitStatus=3`.
 - The timer uses `OnCalendar` and `Persistent=true`.
 - `every` mapping: `15m *:0/15`, `30m *:0/30`, `1h hourly`, `6h 0/6:00`, `12h 0/12:00`, `daily`, `weekly`.
-- Jobs run one at a time (a flock on `~/.local/state/cairn/lock`). Progress goes to `~/.local/state/cairn/<job>.progress`, which the TUI reads.
+- Jobs across all profiles sharing a state root run one at a time (the legacy
+  flock on `$XDG_STATE_HOME/cairn/lock`), including retention/pruning. Restic's
+  repository locks still serialize access from other clients. Progress and
+  `pruned` markers belong to the selected profile. Inspection and recovery
+  retain read-only behavior.
+- ExecStart explicitly selects the profile. Services carry resolved absolute
+  XDG config, state, data and cache roots and the user's PATH. Unsafe systemd
+  characters in executable/root paths abort schedule installation before writes.
 
 ## Files
 - `~/.config/cairn/config.json`: the config

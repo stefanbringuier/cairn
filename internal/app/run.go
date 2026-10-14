@@ -115,6 +115,9 @@ func runJob(c Config, kind string, tty bool) error {
 		return err
 	}
 	defer release()
+	if err := os.MkdirAll(stateDir(), 0o700); err != nil {
+		return err
+	}
 
 	paths := c.job(kind).Paths
 	if kind == "backup" {
@@ -130,8 +133,12 @@ func runJob(c Config, kind string, tty bool) error {
 	if len(existing) == 0 {
 		return fmt.Errorf("none of the %s paths exist: %s", kind, strings.Join(paths, ", "))
 	}
+	excludes, err := c.excludeArgs()
+	if err != nil {
+		return err
+	}
 	args := slices.Concat([]string{"backup", "--json", "--host", c.Host, "--tag", kind, "--one-file-system", "--retry-lock", "10m"},
-		c.excludeArgs(), []string{"--"}, existing)
+		excludes, []string{"--"}, existing)
 
 	sum, unreadable, err := r.backupRun(kind, args, tty)
 	partial := false
@@ -212,6 +219,7 @@ type JobStatus struct {
 }
 
 type Status struct {
+	Profile   string    `json:"profile"`
 	Target    string    `json:"target"`
 	Host      string    `json:"host"`
 	Online    bool      `json:"online"`
@@ -251,7 +259,7 @@ func (s *Status) live() {
 }
 
 func getStatus(c Config) Status {
-	st := Status{Target: redact(c.Target), Host: c.Host, Scheduler: true}
+	st := Status{Profile: selectedProfile, Target: redact(c.Target), Host: c.Host, Scheduler: true}
 	var snaps []Snap
 	r, err := newRestic(c)
 	if err == nil {

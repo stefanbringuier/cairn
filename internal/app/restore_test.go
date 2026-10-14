@@ -65,6 +65,7 @@ exit 99
 }
 
 func TestRestoreRequiresCompleteVerifiedSafetySnapshot(t *testing.T) {
+	profileFixture(t)
 	for _, kind := range []string{"partial", "invalid-json", "missing-id", "missing-path", "success"} {
 		t.Run(kind, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "recent-work.txt")

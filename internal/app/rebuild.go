@@ -190,14 +190,14 @@ func cmdRebuild(c Config, host, from string, yes bool) error {
 			if _, err := r.out("restore", "--target", filepath.Join(stage, filepath.Base(p)), "--", b.ID+":"+p); err != nil {
 				warn("couldn't stage " + p + ": " + err.Error())
 			}
-		case strings.HasSuffix(p, "/cairn/manifests"): // shipped separately when $HOME isn't a backup path
+		case savedManifestPath(p): // shipped separately when $HOME isn't a backup path
 			if !strings.HasPrefix(p, from+"/") {
 				if _, err := r.out("restore", "--target", manifestDir(), "--", b.ID+":"+p); err != nil {
 					warn("couldn't restore the package lists: " + err.Error())
 				}
 			}
 		case p != from:
-			note("also in this backup: " + clean(p) + " → `cairn restore " + clean(p) + " --at " + b.ShortID + "`")
+			note("also in this backup: " + clean(p) + " → `" + profileCommand() + " restore " + clean(p) + " --at " + b.ShortID + "`")
 		}
 	}
 
@@ -233,7 +233,7 @@ func cmdRebuild(c Config, host, from string, yes bool) error {
 		}
 		steps = append(steps, step{fmt.Sprintf("Reinstall %d %s packages", len(names), m.list[0]), func() ([]string, string) {
 			if _, err := exec.LookPath(m.list[0]); err != nil { // checked now: an earlier step may have installed it
-				return nil, m.list[0] + " isn't installed (install it, then rerun `cairn rebuild`)"
+				return nil, m.list[0] + " isn't installed (install it, then rerun `" + profileCommand() + " rebuild`)"
 			}
 			return append(slices.Clone(m.install), names...), ""
 		}})
@@ -266,4 +266,16 @@ func cmdRebuild(c Config, host, from string, yes bool) error {
 	}
 	ok("rebuild done · /etc from the old machine is in " + tildify(filepath.Join(stage, "etc")) + " for reference")
 	return nil
+}
+
+func savedManifestPath(path string) bool {
+	if strings.HasSuffix(path, "/cairn/manifests") {
+		return true
+	}
+	parts := strings.Split(path, "/")
+	if len(parts) < 4 {
+		return false
+	}
+	parts = parts[len(parts)-4:]
+	return parts[0] == "cairn" && parts[1] == "profiles" && validProfile(parts[2]) && parts[2] != "default" && parts[3] == "manifests"
 }

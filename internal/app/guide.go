@@ -37,15 +37,15 @@ func (m *model) resizeGuide() {
 	if m.scr == storageDetails {
 		s := m.destination
 		text = accent.Render(s.Name) + "\n" + ink.Render(s.Summary) + "\n\n" +
-			code.Render("SET UP FROM YOUR TERMINAL") + "\n" + s.Setup + "\n\n" +
-			dim.Render(s.Detail) + "\n\n" +
-			dim.Render("This is a setup guide. Your current destination stays in use until you run cairn init with another target.")
+			code.Render("SET UP FROM YOUR TERMINAL") + "\n" + strings.ReplaceAll(s.Setup, "cairn ", profileCommand()+" ") + "\n\n" +
+			dim.Render(strings.ReplaceAll(s.Detail, "cairn ", profileCommand()+" ")) + "\n\n" +
+			dim.Render("This is a setup guide for profile "+selectedProfile+". Changing its repository with init asks first. Use --profile with a new name to keep both destinations.")
 	}
 	m.guide.SetContent(ansi.Wrap(text, m.guide.Width(), ""))
 }
 
 func basicHelp() string {
-	return strings.Join([]string{
+	text := strings.Join([]string{
 		accent.Render("A saved version. A way back."),
 		"Snapshots save your home and any folders you add.",
 		"Full backups also save system settings and package lists for a new machine.",
@@ -71,4 +71,5 @@ func basicHelp() string {
 		"",
 		"cairn help <command> gives examples. cairn --skill is the agent reference.",
 	}, "\n")
+	return strings.ReplaceAll(text, "cairn ", profileCommand()+" ")
 }

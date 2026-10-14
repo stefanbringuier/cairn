@@ -26,8 +26,9 @@ Description=cairn %[1]s
 
 [Service]
 Type=oneshot
-ExecStart="%[2]s" %[1]s
+ExecStart="%[2]s" --profile "%[5]s" %[1]s
 Environment="PATH=%[3]s"
+%[6]s
 Nice=19
 IOSchedulingClass=idle
 CPUQuota=%[4]d%%
@@ -46,7 +47,29 @@ WantedBy=timers.target
 `
 
 // unitSafe rejects what systemd would reinterpret inside a quoted value (specifiers, env vars, escapes, newlines).
-func unitSafe(s string) bool { return !strings.ContainsAny(s, "\"\\%$\n\r") }
+func unitSafe(s string) bool { return clean(s) == s && !strings.ContainsAny(s, "\"\\%$") }
+
+// Explicit roots keep a timer on the same configuration as the invoking CLI.
+func scheduleEnvironment() (string, error) {
+	cache, err := os.UserCacheDir()
+	if err != nil {
+		return "", err
+	}
+	roots := []struct{ key, value string }{
+		{"XDG_CONFIG_HOME", filepath.Dir(configRoot())},
+		{"XDG_STATE_HOME", filepath.Dir(stateRoot())},
+		{"XDG_DATA_HOME", filepath.Dir(dataDir())},
+		{"XDG_CACHE_HOME", cache},
+	}
+	var out strings.Builder
+	for _, root := range roots {
+		if !filepath.IsAbs(root.value) || !unitSafe(root.value) {
+			return "", fmt.Errorf("can't schedule: %s needs an absolute path without quotes, %%, $, backslashes or control characters", root.key)
+		}
+		fmt.Fprintf(&out, "Environment=\"%s=%s\"\n", root.key, root.value)
+	}
+	return strings.TrimSuffix(out.String(), "\n"), nil
+}
 
 // applySchedule writes both services and turns each timer on or off to match the config.
 func applySchedule(c Config) error {
@@ -56,6 +79,15 @@ func applySchedule(c Config) error {
 	}
 	if !unitSafe(self) {
 		return fmt.Errorf("can't schedule %q: move cairn to a path without quotes, %%, $ or backslashes", self)
+	}
+	environment, err := scheduleEnvironment()
+	if err != nil {
+		return err
+	}
+	for _, kind := range []string{"snapshot", "backup"} {
+		if _, err := onCalendar(c.job(kind).Every); err != nil {
+			return err
+		}
 	}
 	// Timers get the user's PATH so manifests find ~/.cargo/bin, ~/.local/bin, brew, nvm...
 	path := os.Getenv("PATH")
@@ -71,12 +103,12 @@ func applySchedule(c Config) error {
 		if err != nil {
 			return err
 		}
-		unit := filepath.Join(unitDir(), "cairn-"+kind)
-		if err := os.WriteFile(unit+".service", fmt.Appendf(nil, serviceUnit, kind, self, path, quota), 0o600); err != nil {
+		unit := filepath.Join(unitDir(), unitName(kind))
+		if err := os.WriteFile(unit+".service", fmt.Appendf(nil, serviceUnit, kind, self, path, quota, selectedProfile, environment), 0o600); err != nil {
 			return err
 		}
 		if cal == "" {
-			_, _ = systemctl("disable", "--now", "cairn-"+kind+".timer") // fine if it was never enabled
+			_, _ = systemctl("disable", "--now", unitName(kind)+".timer") // fine if it was never enabled
 			os.Remove(unit + ".timer")
 			continue
 		}
@@ -91,8 +123,8 @@ func applySchedule(c Config) error {
 		if c.job(kind).Every == "off" {
 			continue
 		}
-		if out, err := systemctl("enable", "--now", "cairn-"+kind+".timer"); err != nil {
-			return fmt.Errorf("enable cairn-%s.timer: %s", kind, strings.TrimSpace(string(out)))
+		if out, err := systemctl("enable", "--now", unitName(kind)+".timer"); err != nil {
+			return fmt.Errorf("enable %s.timer: %s", unitName(kind), strings.TrimSpace(string(out)))
 		}
 	}
 	return nil
@@ -100,8 +132,8 @@ func applySchedule(c Config) error {
 
 // startJob kicks off a run in the background through its service.
 func startJob(kind string) error {
-	if out, err := systemctl("start", "--no-block", "cairn-"+kind+".service"); err != nil {
-		return fmt.Errorf("start cairn-%s: %s", kind, strings.TrimSpace(string(out)))
+	if out, err := systemctl("start", "--no-block", unitName(kind)+".service"); err != nil {
+		return fmt.Errorf("start %s: %s", unitName(kind), strings.TrimSpace(string(out)))
 	}
 	return nil
 }
@@ -122,7 +154,7 @@ type unitState struct {
 }
 
 func readUnits(kind string) (u unitState, ok bool) {
-	out, err := systemctl("show", "--timestamp=unix", "cairn-"+kind+".timer", "cairn-"+kind+".service",
+	out, err := systemctl("show", "--timestamp=unix", unitName(kind)+".timer", unitName(kind)+".service",
 		"-p", "NextElapseUSecRealtime", "-p", "ActiveState", "-p", "Result", "-p", "ExecMainStatus", "-p", "ExecMainExitTimestamp")
 	if err != nil {
 		return u, false
@@ -164,10 +196,10 @@ func unixTime(v string) time.Time {
 
 // lockJobs serializes snapshot and backup runs (both fire at 00:00).
 func lockJobs(tty bool) (release func(), err error) {
-	if err := os.MkdirAll(stateDir(), 0o700); err != nil {
+	if err := os.MkdirAll(stateRoot(), 0o700); err != nil {
 		return nil, err
 	}
-	f, err := os.OpenFile(filepath.Join(stateDir(), "lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	f, err := os.OpenFile(filepath.Join(stateRoot(), "lock"), os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		return nil, err
 	}

@@ -39,16 +39,19 @@ var builtinExcludes = []string{
 
 var home, _ = os.UserHomeDir()
 
-func configDir() string    { d, _ := os.UserConfigDir(); return filepath.Join(d, "cairn") }
+func configRoot() string   { d, _ := os.UserConfigDir(); return filepath.Join(d, "cairn") }
+func configDir() string    { return profileDir(configRoot(), selectedProfile) }
 func configFile() string   { return filepath.Join(configDir(), "config.json") }
 func passwordFile() string { return filepath.Join(configDir(), "password") }
 
-func stateDir() string {
+func stateRoot() string {
 	if d := os.Getenv("XDG_STATE_HOME"); d != "" {
 		return filepath.Join(d, "cairn")
 	}
 	return filepath.Join(home, ".local", "state", "cairn")
 }
+
+func stateDir() string { return profileDir(stateRoot(), selectedProfile) }
 
 func dataDir() string {
 	if d := os.Getenv("XDG_DATA_HOME"); d != "" {
@@ -67,23 +70,79 @@ func defaultConfig() Config {
 }
 
 func loadConfig() (Config, error) {
-	var c Config
-	b, err := os.ReadFile(configFile())
+	c, err := loadProfile(selectedProfile)
 	if os.IsNotExist(err) {
-		return c, fmt.Errorf("not set up yet: run `cairn init <target>`")
-	}
-	if err == nil {
-		err = json.Unmarshal(b, &c)
+		return c, fmt.Errorf("profile %s is not set up yet: run `%s init <target>`: %w", selectedProfile, profileCommand(), err)
 	}
 	return c, err
 }
 
+func loadProfile(name string) (Config, error) {
+	var c Config
+	if err := checkProfileDirectory(name); err != nil {
+		return c, err
+	}
+	b, err := os.ReadFile(filepath.Join(profileDir(configRoot(), name), "config.json"))
+	if err != nil {
+		return c, err
+	}
+	if err := json.Unmarshal(b, &c); err != nil {
+		return c, fmt.Errorf("invalid configuration for profile %s: %w", name, err)
+	}
+	if err := c.validate(); err != nil {
+		return c, fmt.Errorf("invalid configuration for profile %s: %w", name, err)
+	}
+	return c, nil
+}
+
+func (c Config) validate() error {
+	if c.Target == "" || c.Repo == "" || c.Host == "" {
+		return fmt.Errorf("target, repo and host must be present")
+	}
+	if !filepath.IsAbs(c.Repo) && !slices.ContainsFunc(resticSchemes, func(scheme string) bool { return strings.HasPrefix(c.Repo, scheme) }) {
+		return fmt.Errorf("repo must be an absolute local path or supported repository URL")
+	}
+	for _, kind := range []string{"snapshot", "backup"} {
+		j := c.job(kind)
+		if _, err := normEvery(j.Every); err != nil {
+			return err
+		}
+		if _, err := keepFlags(j.Keep); err != nil {
+			return err
+		}
+		if len(j.Paths) == 0 {
+			return fmt.Errorf("%s needs at least one path", kind)
+		}
+		for _, path := range j.Paths {
+			if !filepath.IsAbs(path) {
+				return fmt.Errorf("%s source paths must be absolute", kind)
+			}
+		}
+	}
+	return nil
+}
+
 func (c Config) save() error {
+	if err := checkProfileDirectory(selectedProfile); err != nil {
+		return err
+	}
 	b, _ := json.MarshalIndent(c, "", "  ")
 	if err := os.MkdirAll(configDir(), 0o700); err != nil {
 		return err
 	}
-	return os.WriteFile(configFile(), append(b, '\n'), 0o600)
+	f, err := os.CreateTemp(configDir(), ".config-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(f.Name())
+	if _, err := f.Write(append(b, '\n')); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	return os.Rename(f.Name(), configFile())
 }
 
 func (c *Config) job(kind string) *Job {
@@ -222,14 +281,21 @@ func (c *Config) set(key, value string) error {
 }
 
 // excludeArgs builds restic --exclude flags: builtin + user + the repo/rebuild dirs themselves.
-func (c Config) excludeArgs() []string {
+func (c Config) excludeArgs() ([]string, error) {
+	profiles, err := configuredProfiles()
+	if err != nil {
+		return nil, err
+	}
 	ex := slices.Concat(builtinExcludes, c.Exclude, []string{globEscape(filepath.Join(stateDir(), "rebuild"))})
-	if strings.HasPrefix(c.Repo, "/") {
-		ex = append(ex, globEscape(c.Repo))
+	for name := range profiles {
+		ex = append(ex, globEscape(filepath.Join(profileDir(stateRoot(), name), "rebuild")))
+	}
+	for _, repo := range localRepositories(c, profiles) {
+		ex = append(ex, globEscape(repo))
 	}
 	out := []string{"--exclude-caches"}
 	for _, e := range ex {
 		out = append(out, "--exclude", e)
 	}
-	return out
+	return out, nil
 }

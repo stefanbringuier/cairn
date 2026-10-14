@@ -77,6 +77,75 @@ For help, use `cairn help restore` or `cairn restore --help`. In the dashboard,
 press `?` for the basics or `t` for destination setup guides. Choose a storage
 type to see its setup commands; the guide leaves your current target in use.
 
+## Several backup destinations
+
+Use a named profile to keep a personal NAS and a separate cloud folder
+scheduled together. These are setup examples; configure your mount and rclone
+account first.
+
+```sh
+cairn --profile nas init /mnt/nas/cairn --password
+cairn --profile cloud init gdrive:backups --path ~/Projects --password
+cairn --profile cloud set snapshot.every 6h
+cairn --profile cloud set backup.every off
+cairn profiles
+cairn --profile nas status
+cairn --profile cloud
+```
+
+Put `--profile NAME` **before the command**. It selects settings, passwords,
+run state and the repository for every operation, including history, diff,
+recover, restore and rebuild. Names use 1–48 lowercase letters, digits or
+hyphens and begin and end with a letter or digit. Selection is never saved:
+`cairn` and commands without the prefix always use `default`. Existing setups
+become that default profile in place, keeping their settings, passwords, state
+and timer names. There is no migration command.
+
+```sh
+cairn --profile cloud snapshot
+cairn --profile cloud history ~/Projects/notes.md --json
+cairn --profile cloud diff 3d --path ~/Projects/notes.md --json
+cairn --profile cloud recover ~/Projects/notes.md --at 3d --json
+cairn --profile cloud restore ~/Projects/notes.md --at 3d
+```
+
+Each profile needs a separate repository so retention cannot delete another
+profile's history. Init refuses a repository used by another profile, including
+local symlink aliases; remote aliases also need distinct underlying storage.
+Re-running init preserves the selected profile's settings and password.
+Changing its repository asks first (or accepts `-y`): future runs and retention
+use the new destination, while old snapshots stay in the old one. Use a new
+name to keep both destinations or use a different password. Invalid saved
+configuration aborts instead of being replaced by defaults; a failed init
+keeps the old configuration and removes only its newly generated unused password.
+
+`cairn profiles --json` lists every configured profile with `name`, `target`,
+and `snapshot`/`backup` objects containing `every`, `timer`, and `enabled`.
+The enabled value reports actual timer state: true, false, or null if systemd
+is unavailable. A configured frequency alone does not prove scheduling works.
+Inspect logs with the profile's unit names:
+
+```sh
+journalctl --user -u cairn-nas-snapshot -u cairn-nas-backup -n 50
+journalctl --user -u cairn-snapshot -u cairn-backup -n 50  # default profile
+```
+
+Named profile credentials live at
+`$XDG_CONFIG_HOME/cairn/profiles/NAME/password` (normally
+`~/.config/cairn/profiles/NAME/password`), alongside `config.json`.
+Manifests, progress and pruning state live under
+`$XDG_STATE_HOME/cairn/profiles/NAME`. Backup jobs across profiles share one
+lock and run one at a time; downloaded dependencies stay shared. Timers carry
+the XDG roots from init/settings so scheduled runs use the same configuration.
+All configured local repositories are skipped by ordinary backups and protected
+against restore replacement, as is the whole configuration root. Keep the
+profile-qualified undo command printed by restore.
+
+![Named profile dashboard from the running app](images/profile-dashboard.png)
+
+This capture uses a disposable repository. The NAS path and scheduling metadata
+are fixtures, not a connected NAS or cloud account.
+
 ## Snapshots vs backups
 
 | | **snapshot** | **backup** |
@@ -85,7 +154,7 @@ type to see its setup commands; the guide leaves your current target in use.
 | what | `$HOME` (plus any paths you add) | `$HOME`, `/etc`, `/usr/share/keyrings`, and lists of your installed packages (apt, snap, flatpak, brew, uv tools, pipx, cargo, npm -g, crontab) |
 | default | every hour, keep `24h,7d,4w` | every day, keep `7d,4w,12m` |
 
-Both kinds go to the **same repository**, so files they share are stored only once. Several machines can also share one repository: everything is tracked per host.
+Both kinds in a profile go to the **same repository**, so files they share are stored only once. Several machines can also share one repository: everything is tracked per host.
 
 Regenerable stuff is skipped: `.venv`, `node_modules`, `__pycache__`, `.cache`, package-manager stores, trash, container storage, and anything marked with a `CACHEDIR.TAG`. Dotfiles and lockfiles (`pyproject.toml`, `uv.lock`, `package.json`, …) are always kept, so the environment can be regenerated.
 
@@ -97,6 +166,13 @@ Install the OS, mount the same target, then:
 cairn init /mnt/nas/cairn     # connects to the existing repository
 cairn rebuild
 ```
+
+For a named profile, use `cairn --profile nas init /mnt/nas/cairn` and
+`cairn --profile nas rebuild`. The selected profile supplies the source repository
+and recipe, but rebuild restores **the entire home**, including saved configuration
+and systemd unit files for other profiles. Inspect `cairn profiles` and each
+profile's settings and schedules afterward. Selection does not limit rebuild's
+writes to that profile's files.
 
 `rebuild` does three things:
 1. It restores your old home into the new one. This works whatever the new disk, partitioning or filesystem.

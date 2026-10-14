@@ -11,6 +11,7 @@ be able to use the same commands and understand the same results.
 | `cmd/cairn/main.go` | Build version and process exit |
 | `internal/app/cli.go`, `help.go` | Command dispatch, prompts, examples, storage guides |
 | `config.go`, `schedule.go` | User defaults, retention, systemd timers, status |
+| `profiles.go` | Explicit profile selection, inventory, shared repository protection |
 | `restic.go`, `restore.go`, `recover.go`, `diff.go`, `run.go` | Repository access, safe exports, snapshot comparisons, restore safety, backup runs |
 | `fetch.go` | Pinned, checksum-verified dependency binaries |
 | `rebuild.go` | Recovery and individually confirmed package installation |
@@ -20,6 +21,41 @@ be able to use the same commands and understand the same results.
 restic owns the repository format, deduplication, and transfer. rclone owns
 remote configuration and authentication. systemd owns scheduling. The Go
 program stays independent of the docs and screenshot tooling.
+
+## Named profiles
+
+One invocation selects one profile with the global prefix `--profile NAME`.
+The implicit `default` profile retains legacy files and units in place; named
+profiles use `profiles/NAME` beneath the same config and state roots. Selection
+is never persisted. The TUI, restic password, settings, status, manifests,
+progress, pruning marker, rebuild scratch and printed commands all use that
+selection. Dependency binaries remain shared.
+
+Timers use `cairn-NAME-{snapshot,backup}` for named profiles and the original
+unit names for default. Their ExecStart explicitly selects the profile and
+Environment preserves absolute XDG config, state, data and cache roots.
+Validate all roots and schedules before writing units; reject characters
+systemd would reinterpret. Inventory reports actual enabled state separately
+from configured frequency, including unknown when systemd is unavailable.
+
+Keep the existing state-root flock across all profiles. This deliberately
+serializes backup jobs and their retention/pruning on one machine; independent
+repositories still have separate progress and pruning state. Restic handles
+locks from other clients. Refuse init on a repository already configured by
+another profile, resolving local symlink aliases, because host/tag retention
+would otherwise prune another profile's history. Provider aliases cannot be
+resolved locally; document the need for distinct remote storage as well.
+
+Discover every configured local repository for run exclusions and restore
+overlap checks. Protect the entire cairn config root, including other passwords.
+Follow config/password file symlinks outside that root and protect their targets
+and containing destinations, preserving existing credential arrangements.
+Invalid saved configurations abort discovery instead of silently omitting a
+repository. Reject symlink profile directories. Use an atomic config-file
+replacement and remove a new password on pre-save init failure. Existing
+passwords and configurations remain intact. Reinitializing a profile retains
+settings, warns and confirms repository changes, and leaves its old snapshots
+in the old repository. These guards remain accident prevention, not permissions.
 
 ## Extend a command
 

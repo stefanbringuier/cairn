@@ -33,6 +33,8 @@ def restic(repo, *args):
 
 
 def main():
+    mode = sys.argv[2] if len(sys.argv) > 2 else "tui"
+    profile = "nas" if mode == "profile" else "default"
     with tempfile.TemporaryDirectory(prefix="cairn-demo-") as directory:
         root = Path(directory)
         workspace = root / "projects"
@@ -55,9 +57,11 @@ def main():
         (workspace / "launch-plan.md").write_text("# Launch plan\n\nAn accidental edit.\n")
 
         config = root / "config/cairn"
+        if profile != "default":
+            config = config / "profiles" / profile
         config.mkdir(parents=True)
         config.joinpath("config.json").write_text(json.dumps({
-            "target": "/mnt/backup/cairn",
+            "target": "/mnt/" + "personal-nas-folders/" * 10 + "cairn" if profile != "default" else "/mnt/backup/cairn",
             "repo": str(repo),
             "host": "demo-laptop",
             "snapshot": {"every": "1h", "keep": "24h,7d,4w", "paths": [str(workspace)]},
@@ -95,7 +99,8 @@ def main():
         master, slave = pty.openpty()
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 32, 110, 0, 0))
         process = subprocess.Popen(
-            [sys.argv[1], *(["restore", "launch-plan.md"] if len(sys.argv) > 2 and sys.argv[2] == "restore" else [])],
+            [sys.argv[1], *(["--profile", profile] if profile != "default" else []),
+             *(["restore", "launch-plan.md"] if mode == "restore" else [])],
             env=env, cwd=workspace, stdin=slave, stdout=slave, stderr=slave,
             start_new_session=True,
         )

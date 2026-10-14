@@ -27,8 +27,9 @@ cairn is a per-user Linux wrapper around restic. Backups need no sudo; package r
 | Command | Does |
 |---|---|
 | `cairn` | TUI dashboard if a TTY, else the same as `cairn status` |
-| `cairn init <target> [--password] [--path P]... [-y]` | Create the repo or connect to an existing one; write the config; install the systemd user timers; start the first snapshot in the background. Re-running it is safe (keeps settings, re-points the target). If a local target is on the same disk as `$HOME` (e.g. an unmounted NAS mount point), it needs confirmation or `-y` |
+| `cairn init <target> [--password] [--path P]... [-y]` | Create the repo or connect to an existing one; write the config; install the systemd user timers; start the first snapshot in the background. Re-running it keeps settings and the password; changing a configured repository needs confirmation or authorized `-y`. A local target on the same disk as `$HOME` (e.g. an unmounted NAS mount point) also needs confirmation or `-y` |
 | `cairn status [--json]` | Target online/offline; for snapshot and backup: every, keep, paths, count, last (time + id), next run, result of the last timer run (`ok`/`partial`/`failed`), running + percent, stale (overdue). Exits 10 when offline |
+| `cairn profiles [--json]` | List all configured profiles, targets, job frequencies, timer names and actual enabled states |
 | `cairn snapshot` | Run a snapshot now (blocks; prints a summary) |
 | `cairn backup` | Run a full backup now |
 | `cairn restore <path> [--at A] [--to T] [-y]` | Restore a file or folder |
@@ -42,6 +43,112 @@ cairn is a per-user Linux wrapper around restic. Backups need no sudo; package r
 | `cairn targets [--json]` | Explain destination setup without connecting or changing configuration; JSON is an array of `{name, summary, setup, detail}` |
 | `cairn help [command]` / `<command> --help` | Plain-language examples and flags; works before init |
 
+## Named profiles and selection
+
+Every operation selects exactly one profile. Use the **global prefix before
+the command**, `cairn --profile NAME <command>` (also `--profile=NAME`). With
+no command, `cairn --profile NAME` opens that profile's dashboard on a TTY or
+prints its status. Omission **always selects `default`**; there is no stored
+active choice and no implicit loop over profiles. Select the repository before
+using snapshot IDs, settings or recovery results. Profile names are 1–48
+lowercase ASCII letters, digits or hyphens, starting and ending with a letter
+or digit. Invalid names exit 2. Arguments after the command's `--` remain
+literal paths, even if named `--profile=other`.
+
+Existing installations remain `default` without moving settings, passwords,
+state, or replacing the `cairn-snapshot`/`cairn-backup` unit names. Adding a name
+leaves the others configured and scheduled. Example setup (requires authorized
+configuration changes and an already mounted NAS/configured rclone remote):
+
+```sh
+cairn --profile nas init /mnt/nas/cairn --password
+cairn --profile cloud init gdrive:backups --path ~/Projects --password
+cairn --profile cloud set snapshot.every 6h
+cairn --profile cloud set backup.every off
+cairn profiles --json
+cairn --profile nas status --json
+cairn --profile cloud snapshot
+cairn --profile cloud backup
+cairn --profile cloud history ~/Projects/notes.md --json
+cairn --profile cloud diff <older> <newer> --path ~/Projects/notes.md --json
+cairn --profile cloud recover ~/Projects/notes.md --at <snapshot> --json
+cairn --profile cloud restore --at <approved-snapshot> -y -- ~/Projects/notes.md
+cairn --profile nas rebuild
+```
+
+The restore example requires explicit authorization for the version and
+destination. Recovery still refuses existing destinations. Rebuild needs
+authorization for the whole operation: `--profile` selects its source repository
+and recipe, but it restores the **entire home**, including saved config and unit
+files for other profiles. Inspect `cairn profiles`, each profile's settings and
+schedules afterward. Profile selection does not confine rebuild's write scope.
+
+Each named profile stores `config.json` and optional mode-600 `password` under
+`$XDG_CONFIG_HOME/cairn/profiles/NAME` (normally
+`~/.config/cairn/profiles/NAME`). Its manifests, progress files, `pruned` marker
+and rebuild scratch are under `$XDG_STATE_HOME/cairn/profiles/NAME` (normally
+`~/.local/state/cairn/profiles/NAME`). Default keeps the root cairn directories.
+Restic/rclone binaries stay shared under `$XDG_DATA_HOME/cairn/bin`. For an
+existing encrypted repository, create its profile directory with mode 700 and
+securely supply the existing password in that profile's `password` file with
+mode 600 before running `cairn --profile nas init /mnt/nas/cairn --password`.
+
+Do not put passwords in command arguments, logs, or agent-visible responses.
+With custom XDG roots, use the configured root rather than the example home path.
+Scheduled services explicitly select their profile and preserve absolute XDG
+config/state/data/cache roots plus PATH. Unsafe characters in those roots stop
+schedule installation; init warns and manual runs remain available. Credentials
+for cloud providers/rclone still need to be available to the systemd user manager.
+
+Named timers are `cairn-NAME-snapshot.timer` and `cairn-NAME-backup.timer`.
+`cairn profiles --json` returns an array sorted by name:
+
+```json
+[
+  {
+    "name": "nas",
+    "target": "/mnt/nas/cairn",
+    "snapshot": {"every": "1h", "timer": "cairn-nas-snapshot.timer", "enabled": true},
+    "backup": {"every": "daily", "timer": "cairn-nas-backup.timer", "enabled": true}
+  }
+]
+```
+
+`enabled` is true/false, or null if systemd cannot report actual state. A
+configured frequency alone is not evidence a timer is enabled. Invalid saved
+configs abort the list. `status --json` includes `profile`; its job state is
+only for that selection. Inspect logs with
+`journalctl --user -u cairn-nas-snapshot -u cairn-nas-backup -n 50` (use the
+original unit names for default). Backup jobs across profiles sharing a state
+root serialize through the default root's `lock`, including pruning; progress
+and pruning markers are separate. Read-only inspection/recovery retain their
+normal behavior and restic handles repository locks from other clients.
+
+Profiles must have **distinct repositories**: init refuses another profile's
+repository, including local symlink aliases, because host/tag retention could
+delete each other's history. Remote URLs are compared as configured; different
+remote aliases must also point to separate storage. Ordinary backups exclude
+all configured local repositories and all profile rebuild scratch directories.
+Restore refuses overlap with any configured local repository or the entire cairn
+configuration root, including other profile passwords. It also protects external
+targets of config/password file symlinks and destinations containing them.
+Invalid configurations abort these checks; they are not silently omitted.
+Profile directories cannot be symbolic links. Profiles and host filters are
+selectors, not permissions.
+
+Reinitializing a profile keeps its retention, schedules, exclusions and password;
+`--path` replaces its source paths. A repository change needs confirmation or
+authorized `-y`. Subsequent runs and retention use the new repository, while
+old snapshots stay in the old one. Use a new name to keep both destinations or
+use a different password. Invalid existing config aborts init. Failed init
+keeps the old config and removes only a newly generated, unsaved password.
+
+Printed undo commands retain a named selection, for example
+`cairn --profile cloud restore --at <full-undo-ID> -y -- '/home/me/Projects/notes.md'`.
+Keep that prefix when reporting or executing an already approved undo; IDs and
+passwords belong to the selected repository. Undo itself requires replacement
+authorization and must not discard subsequent edits.
+
 **Target forms:**
 - A path (a mounted NAS from fstab, a USB disk: `/mnt/nas/cairn`). Its parent must exist.
 - An rclone remote name plus path (`gdrive:backups`). The remote must already exist: a human runs `rclone config` once.
@@ -54,7 +161,7 @@ restic and rclone are downloaded automatically (pinned and hash-checked) into `~
 
 **Passwords:** repos have no password by default (anyone who can read the target can read the data).
 - `--password` makes cairn prompt for one, or generate one (without a TTY it's generated, and the path to it is printed).
-- To connect to an existing passworded repo non-interactively, write the password to `~/.config/cairn/password` (mode 600) first, then run `cairn init <target> --password`.
+- To connect to an existing passworded default repo non-interactively, write the password to `~/.config/cairn/password` (mode 600) first, then run `cairn init <target> --password`. For a named profile, use its profile password file and `cairn --profile NAME init` instead.
 
 **`--at`:**
 - `latest` (the default).
@@ -111,7 +218,7 @@ Scheduled (timer) runs against an offline target exit 0 and log "offline, skippe
 
 ## Without cairn (fallback)
 The same approval and permission rules apply to direct restic use. A separate-copy fallback must use a fresh destination; it has no cairn no-replace guard. Never use it to bypass a refusal.
-The repo is plain restic, with no password unless `~/.config/cairn/password` exists. `<repo>` is the `repo` field of `cairn set --json`; rclone repos also need `-o rclone.program=<path to rclone>`.
+The repo is plain restic, with no password unless the selected profile's password file exists. `<repo>` is the `repo` field of `cairn --profile NAME set --json` (omit the prefix for default); rclone repos also need `-o rclone.program=<path to rclone>`. For an encrypted profile, replace `--insecure-no-password` below with `--password-file <that-profile-password-file>`.
 ```
 RESTIC_REPOSITORY=<repo> restic --insecure-no-password snapshots
 recovery_dir=$(mktemp -d /tmp/cairn-rescue.XXXXXX)

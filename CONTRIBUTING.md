@@ -84,6 +84,8 @@ interactive confirmation and cancellation, noninteractive refusal, `-y`, a
 deleted file, the undo snapshot, and a directory. If rclone is installed it
 also exercises a real local rclone remote, without touching your accounts.
 It also checks snapshot diffs, no-overwrite recovery, permissions/timestamps,
+named-profile selection, independent credentials/state/timers, generated timer
+commands with isolated XDG roots, and unchanged legacy configuration/units,
 deleted links, incomplete safety backups, and undo for normally excluded files
 and alternate destinations. If ffmpeg and ffprobe are installed, it recovers a
 real 50-second video while preserving a newer unsnapshotted edit.
