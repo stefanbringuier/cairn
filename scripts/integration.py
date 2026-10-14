@@ -264,15 +264,22 @@ def main():
                 assert timer.read_text() == "existing timer fixture\n"
                 assert not root.joinpath("config/cairn/password").exists()
                 assert config.joinpath("rclone.conf").read_bytes() == rclone_before
-            # A remote can exist while its connection fails: use a disposable local
-            # file as a parent so rclone cannot create a repository beneath it.
-            blocked = root / "blocked-parent"
-            blocked.write_text("not a directory\n")
-            output = run("init", f"demo:{blocked}/repository", "--password", "-y", expected=1)
-            assert "cairn cloud setup" in output, output
+            # Use a real encrypted repository with a different password. This
+            # fails promptly after rclone connects, without backend retry delays.
+            protected = root / "protected-rclone-repository"
+            fixture_password = root / "fixture-password"
+            fixture_password.write_text("isolated integration repository password\n")
+            fixture_password.chmod(0o600)
+            subprocess.run(
+                ["restic", "--repo", str(protected), "--password-file", str(fixture_password), "init"],
+                env=env, cwd=workspace, check=True, capture_output=True, text=True, timeout=120,
+            )
+            output = run("init", f"demo:{protected}", "--password", "-y", expected=1)
+            assert "wrong password" in output, output
             assert cairn_config.read_bytes() == before
             assert timer.read_text() == "existing timer fixture\n"
             assert not root.joinpath("config/cairn/password").exists()
+            assert config.joinpath("rclone.conf").read_bytes() == rclone_before
             run("init", f"demo:{root / 'rclone-repository'}", "--path", str(workspace), "--password", "-y")
             run("snapshot")
             notes.write_text("remote adapter edit\n")

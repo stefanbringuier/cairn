@@ -93,7 +93,9 @@ mounted sources because runs use `--one-file-system`.
 Use `--password` for cloud and shared destinations. Scheduled processes need
 credentials available to the systemd user manager. Never use a contributor's
 real repository for tests. A local rclone adapter check proves the adapter,
-not Google authorization or an actual NAS connection.
+not Google authorization or an actual NAS connection. Failed-connection checks
+use an incorrect password against a disposable encrypted local repository, so
+they exercise credential rollback without waiting for backend connection retries.
 
 ## Linux, releases, and docs
 
