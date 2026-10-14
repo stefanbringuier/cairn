@@ -108,6 +108,9 @@ real repository for tests. A local rclone adapter check proves the adapter,
 not Google authorization or an actual NAS connection. Failed-connection checks
 use an incorrect password against a disposable encrypted local repository, so
 they exercise credential rollback without waiting for backend connection retries.
+Integration fixtures resolve both system binaries and cairn's private downloaded
+tools for direct commands. CI exercises automatic downloads without system restic
+or rclone installations.
 
 ## Linux, releases, and docs
 

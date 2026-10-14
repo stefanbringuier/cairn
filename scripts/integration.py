@@ -245,6 +245,9 @@ def main():
         folder.chmod(0o750)
         os.utime(folder, (1700000000, 1700000000))
         run("init", str(root / "repository"), "--path", str(workspace), "-y")
+        # CI has no system restic/rclone: direct fixture commands must use the
+        # same checksum-checked binaries that cairn downloads on demand.
+        env["PATH"] = str(Path(env["XDG_DATA_HOME"]) / "cairn/bin") + os.pathsep + env["PATH"]
         defaults = json.loads(run("set", "--json"))
         assert defaults["backup_scope"] == "machine"
         assert defaults["snapshot"]["paths"] == [str(workspace)]
