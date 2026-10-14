@@ -185,6 +185,9 @@ var resticSchemes = []string{"sftp:", "rest:", "s3:", "b2:", "azure:", "gs:", "s
 
 // repoFor turns what the user typed into a restic repository string.
 func repoFor(target string) (string, error) {
+	if remote, ok := strings.CutPrefix(target, "rclone:"); ok {
+		return rcloneRepoFor(remote)
+	}
 	if strings.HasPrefix(target, "/") || strings.HasPrefix(target, "~") || strings.HasPrefix(target, ".") {
 		return expand(target), nil
 	}
@@ -193,9 +196,16 @@ func repoFor(target string) (string, error) {
 			return target, nil
 		}
 	}
-	name, _, ok := strings.Cut(target, ":")
-	if !ok {
+	if !strings.Contains(target, ":") {
 		return expand(target), nil
+	}
+	return rcloneRepoFor(target)
+}
+
+func rcloneRepoFor(target string) (string, error) {
+	name, _, ok := strings.Cut(target, ":")
+	if !ok || name == "" {
+		return "", fmt.Errorf("rclone target must be remote:path: configure a remote with `cairn cloud setup`")
 	}
 	rclone, err := tool("rclone")
 	if err != nil {
@@ -203,10 +213,10 @@ func repoFor(target string) (string, error) {
 	}
 	out, err := exec.Command(rclone, "listremotes").Output() // #nosec G204 -- our rclone binary
 	if err != nil {
-		return "", fmt.Errorf("rclone listremotes: %w", err)
+		return "", fmt.Errorf("can't read rclone remotes: run `cairn cloud setup`, then rerun cairn init")
 	}
 	if !slices.Contains(strings.Fields(string(out)), name+":") {
-		return "", fmt.Errorf("no rclone remote %q: create it with `%s config` (e.g. Google Drive), then rerun", name, rclone)
+		return "", fmt.Errorf("rclone remote is not configured: create it with `cairn cloud setup`, then rerun cairn init")
 	}
 	return "rclone:" + target, nil
 }

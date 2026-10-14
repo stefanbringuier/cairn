@@ -38,6 +38,7 @@ cairn is a thin CLI + TUI over restic. restic stores the data, systemd user time
 | `cairn set <key> <value>` | `snapshot.every`, `snapshot.keep`, `snapshot.paths`, `backup.every`, `backup.keep`, `backup.paths`, `exclude` |
 | `cairn --skill` | print the agent skill |
 | `cairn targets [--json]` | destination examples and setup instructions; no connection or config changes; JSON is an array of `{name, summary, setup, detail}` |
+| `cairn cloud setup` | obtain rclone if needed and run its remote configuration wizard; no cairn repository or timer changes |
 | `cairn help [command]` / `<command> --help` | plain-language examples and flags without requiring setup |
 
 - `--at`: `latest` (the default), a snapshot id, `2026-10-01`, `2026-10-01 14:00`, or an age such as `30m`, `6h`, `3d`, `2w`.
@@ -45,6 +46,23 @@ cairn is a thin CLI + TUI over restic. restic stores the data, systemd user time
 - `keep`: comma list of `<n>h <n>d <n>w <n>m <n>y`, plus a bare `<n>` for `--keep-last n`.
 - Lists: `+x` adds, `-x` removes, and `a,b` replaces.
 - Relative restore paths use the current directory. A deleted file can be restored without recreating it first. `-y` bypasses confirmation while preserving the safety snapshot for an existing path.
+
+## Cloud setup
+
+`cloud setup` accepts no extra arguments or flags. It uses the same rclone
+selection as repository access: a binary on PATH, an existing private binary,
+or a pinned, checksum-checked download. It runs only `rclone config`, inheriting
+stdin, stdout, stderr, and rclone's normal configuration environment. The human
+chooses the provider and owns authentication. Success exits 0; a setup failure
+exits 1; unsupported arguments exit 2. It works before `init` and requires no
+private binary directory on PATH. Downloads use
+`${XDG_DATA_HOME:-$HOME/.local/share}/cairn/bin`.
+
+Both `remote:path` and `rclone:remote:path` require a configured rclone remote.
+Missing remotes and failed cloud connections give credential-safe guidance to
+run `cairn cloud setup`. A failed connection does not change the current cairn
+configuration or timers, preserves an existing repository password, and removes
+a newly generated password. Rclone configuration remains owned by rclone.
 
 ## Agent inspection and recovery
 

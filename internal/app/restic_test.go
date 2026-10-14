@@ -6,7 +6,9 @@ import (
 )
 
 func TestRepoForAndRedact(t *testing.T) {
-	for in, want := range map[string]string{"/mnt/nas/c": "/mnt/nas/c", "~/b": home + "/b", "sftp:u@h:/x": "sftp:u@h:/x", "rclone:g:x": "rclone:g:x"} {
+	dir := cloudFixture(t)
+	cloudTool(t, dir, "rclone", "printf 'g:\\n'\n")
+	for in, want := range map[string]string{"/mnt/nas/c": "/mnt/nas/c", "~/b": home + "/b", "sftp:u@h:/x": "sftp:u@h:/x", "rclone:g:x": "rclone:g:x", "g:x": "rclone:g:x"} {
 		if got, err := repoFor(in); err != nil || got != want {
 			t.Errorf("%s: got %q %v", in, got, err)
 		}
