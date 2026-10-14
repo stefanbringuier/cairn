@@ -89,6 +89,42 @@ Both kinds go to the **same repository**, so files they share are stored only on
 
 Regenerable stuff is skipped: `.venv`, `node_modules`, `__pycache__`, `.cache`, package-manager stores, trash, container storage, and anything marked with a `CACHEDIR.TAG`. Dotfiles and lockfiles (`pyproject.toml`, `uv.lock`, `package.json`, …) are always kept, so the environment can be regenerated.
 
+### Back up data folders only
+
+Choose data-only scope when the repository is for files rather than a machine
+rebuild:
+
+```sh
+cairn init /mnt/backup/project-data --data-only --path ~/Projects --path ~/Documents
+cairn backup
+cairn set
+```
+
+Both jobs start with just those sources. Omit `--path` to use your home.
+Data-only runs skip system-folder additions and installed-package lists;
+old cairn manifests are excluded even when stored inside a source. Normal
+cache exclusions, schedules, retention, and safe file recovery still apply.
+The dashboard says **DATA BACKUPS**, and settings show `backup.scope`.
+`cairn rebuild` refuses this mode; use `history`, `recover`, or `restore`.
+
+![Data-only dashboard with disposable files and scheduler fixture metadata](images/data-only-dashboard.png)
+
+Without `--data-only`, a new setup keeps the machine defaults above.
+`--path` alone changes snapshot sources and also adds `/etc` and
+`/usr/share/keyrings` to backup sources, with package manifests still included.
+Editing `backup.paths` does not change scope. Reinitializing preserves scope,
+frequencies, retention, and excludes; supplying paths replaces both source
+lists according to that scope. To switch an existing setup, explicitly choose
+the scope and supply the complete new source list:
+
+```sh
+cairn init /mnt/backup/project-data --data-only --path ~/Projects
+cairn init /mnt/backup/cairn --data-only=false --path "$HOME"
+```
+
+Changing scope leaves old saved versions in the repository. New data-only
+versions are tagged so a later machine rebuild ignores them.
+
 ## A new machine, the same setup
 
 Install the OS, mount the same target, then:
@@ -104,6 +140,9 @@ cairn rebuild
 3. It walks you through reinstalling your packages, one confirmed step at a time: apt sources and keys, then `apt`, `snap`, `flatpak`, `brew`, `uv`, `pipx`, `cargo`, `npm` and your crontab.
 
 These steps are the only place cairn uses sudo, and you approve each one. Anything else that was in the backup is listed with the command to restore it.
+Package lists always come from the selected machine backup, even when a newer
+home snapshot omitted them. A failed package-list export stops installation;
+current lists do not supplement the selected recipe.
 
 ## Targets
 

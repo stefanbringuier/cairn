@@ -28,6 +28,18 @@ command-specific help, keep JSON output structured, and define exit codes.
 Use a small function that returns an error; the executable owns termination.
 Add focused tests and update [usage.md](usage.md) and the agent reference.
 
+Backup scope is persisted in `Config.BackupScope`, defaulting legacy configs to
+machine scope. Init owns scope changes and requires explicit sources when
+switching an existing configuration. Path edits never infer scope. Data-only
+runs skip manifest collection and exclude cairn's manifest directory,
+including stale recipes contained in a source. They retain the normal restic
+job tags and add `data-only`; rebuild rejects data-only configurations and
+filters that tag from both recipe and home selection after reconnecting.
+Rebuild stages explicitly recorded manifests from its chosen machine backup
+in a fresh scratch directory, even for sources under the old home. Package and
+crontab steps read only that directory; export failure aborts those steps, and
+stale live manifests cannot supplement missing managers in the chosen recipe.
+
 Relative file paths resolve against the current working directory. A deleted
 file does not have to exist for restoration. `-y` accepts confirmation but
 does not remove the pre-restore snapshot. Changes to this flow need the real

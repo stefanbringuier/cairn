@@ -3,7 +3,10 @@ package app
 import (
 	"errors"
 	"flag"
+	"os"
+	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -27,6 +30,29 @@ func TestParseInterspersedFlagsAndLiteralPaths(t *testing.T) {
 		if pos := parse(fs, tc.args); !slices.Equal(pos, tc.pos) || *to != tc.to || *yes != tc.yes {
 			t.Errorf("%q: pos=%q to=%q yes=%v", tc.args, pos, *to, *yes)
 		}
+	}
+}
+
+func TestInitRefusesInvalidExistingSettings(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	if err := os.MkdirAll(configDir(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	bad := []byte(`{"backup_scope":"invalid"}`)
+	if err := os.WriteFile(configFile(), bad, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(t.TempDir(), "unused-repository")
+	err := cmdInit(target, false, []string{"/data"}, true, nil)
+	if err == nil || !strings.Contains(err.Error(), "unknown backup scope") {
+		t.Fatalf("init ignored invalid settings: %v", err)
+	}
+	after, err := os.ReadFile(configFile())
+	if err != nil || string(after) != string(bad) {
+		t.Fatal("init overwrote invalid settings")
+	}
+	if _, err := os.Stat(target); !os.IsNotExist(err) {
+		t.Fatal("init created a repository before checking settings")
 	}
 }
 

@@ -164,8 +164,11 @@ func jobCard(kind string, j JobStatus, online bool, width int, compact bool) str
 		inside = max(width-panel.GetHorizontalFrameSize(), 1)
 	}
 	title := accent.Render("SNAPSHOTS")
-	if kind == "backup" {
+	switch kind {
+	case "backup":
 		title = code.Bold(true).Render("FULL BACKUPS")
+	case scopeDataOnly:
+		title = code.Bold(true).Render("DATA BACKUPS")
 	}
 	last := dim.Render("Waiting for the first run")
 	if !online {
@@ -228,13 +231,17 @@ func dashboardLayout(st Status, width int, compact bool) string {
 		target += "\n" + trimUI(bad.Render(clean(st.Error)), inside)
 	}
 	var jobs string
+	backupKind := "backup"
+	if st.BackupScope == scopeDataOnly {
+		backupKind = scopeDataOnly
+	}
 	if width >= 76 {
 		cardWidth := (width - 2) / 2
 		jobs = lipgloss.JoinHorizontal(lipgloss.Top,
 			jobCard("snapshot", st.Snapshot, st.Online, cardWidth, compact), "  ",
-			jobCard("backup", st.Backup, st.Online, width-2-cardWidth, compact))
+			jobCard(backupKind, st.Backup, st.Online, width-2-cardWidth, compact))
 	} else {
-		jobs = jobCard("snapshot", st.Snapshot, st.Online, width, compact) + "\n\n" + jobCard("backup", st.Backup, st.Online, width, compact)
+		jobs = jobCard("snapshot", st.Snapshot, st.Online, width, compact) + "\n\n" + jobCard(backupKind, st.Backup, st.Online, width, compact)
 	}
 	if !compact {
 		target = panel.Width(width).Render(target)

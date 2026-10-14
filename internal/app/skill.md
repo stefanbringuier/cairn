@@ -11,6 +11,32 @@ cairn is a per-user Linux wrapper around restic. Backups need no sudo; package r
 - **snapshot** (tag `snapshot`): frequent; default paths `$HOME`; default every `1h`, keep `24h,7d,4w`. Use these to get files and folders back.
 - **backup** (tag `backup`): a full rebuild recipe: `$HOME`, `/etc`, `/usr/share/keyrings`, plus package manifests (apt, snap, flatpak, brew, uv tools, pipx, cargo, npm -g, crontab). Default every `daily`, keep `7d,4w,12m`. Use these to rebuild a machine on a new disk or filesystem.
 
+**Data-only scope:** `cairn init /mnt/backup/data --data-only --path ~/Projects`
+sets both jobs to exactly the repeated `--path` sources; omitted paths default
+to `$HOME`. No system paths are added, no package/crontab manifests are generated,
+and cairn's existing manifest directory is excluded from both jobs even beneath
+a source. Normal cache exclusions, retention, schedules, and restore safety
+apply. Data-only backups carry both `backup` and `data-only` tags; snapshots
+keep the `snapshot` tag. `rebuild` refuses a data-only configuration before
+repository access and ignores tagged data-only backups in machine scope. Use
+`history`, `recover`, or approved `restore` for data-only saved files.
+
+Without `--data-only`, a new setup uses machine scope. `--path` alone replaces
+snapshot paths and sets backup paths to those sources plus `/etc` and
+`/usr/share/keyrings`; package manifests are still included. Reinitialization
+without a scope flag preserves scope and other settings. Repeated `--path`
+replaces both jobs' paths according to the preserved scope. Changing an existing
+scope requires the explicit complete source list: `init <target> --data-only
+--path P` or `init <target> --data-only=false --path P`. Both preserve frequencies,
+retention, excludes, and old saved versions. Paths edited with `set` never
+change scope. Settings and status JSON include `backup_scope` (`machine` or
+`data-only`); a legacy missing field means `machine`. Rendered settings show
+`backup.scope`, which is read-only through `set`.
+Machine rebuild stages package/crontab manifests from its selected backup in
+a fresh directory, including sources under the old home. Newer home snapshots
+and live manifests cannot supplement the recipe. If its export fails, no
+package installation starts.
+
 **Generated stuff is skipped:** `.venv`, `node_modules`, `__pycache__`, `.cache`, package-manager stores, trash, container storage, and any directory with a `CACHEDIR.TAG`. Dotfiles and lockfiles are kept, so the environment can be regenerated.
 
 ## Rules for agents
@@ -27,10 +53,10 @@ cairn is a per-user Linux wrapper around restic. Backups need no sudo; package r
 | Command | Does |
 |---|---|
 | `cairn` | TUI dashboard if a TTY, else the same as `cairn status` |
-| `cairn init <target> [--password] [--path P]... [-y]` | Create the repo or connect to an existing one; write the config; install the systemd user timers; start the first snapshot in the background. Re-running it is safe (keeps settings, re-points the target). If a local target is on the same disk as `$HOME` (e.g. an unmounted NAS mount point), it needs confirmation or `-y` |
+| `cairn init <target> [--password] [--data-only] [--path P]... [-y]` | Create the repo or connect to an existing one; persist scope and paths; install the systemd user timers; start the first snapshot in the background. Re-running keeps scope and settings unless explicitly changed as described above. If a local target is on the same disk as `$HOME` (e.g. an unmounted NAS mount point), it needs confirmation or `-y` |
 | `cairn status [--json]` | Target online/offline; for snapshot and backup: every, keep, paths, count, last (time + id), next run, result of the last timer run (`ok`/`partial`/`failed`), running + percent, stale (overdue). Exits 10 when offline |
 | `cairn snapshot` | Run a snapshot now (blocks; prints a summary) |
-| `cairn backup` | Run a full backup now |
+| `cairn backup` | Run a machine or data-only backup now, according to configured scope |
 | `cairn restore <path> [--at A] [--to T] [-y]` | Restore a file or folder |
 | `cairn history <path> [--json]` | Versions of a path: `[{snapshot, kind, time, size, mtime}]`, newest first (size/mtime only for files; `[]` if none) |
 | `cairn diff <from> [<to>] [--path P] [--metadata] [--json]` | Compare saved snapshots; `to` defaults to latest. Selectors accept the same forms as `--at`. Does not compare live files. Refuses incomplete comparisons |

@@ -117,7 +117,7 @@ func runJob(c Config, kind string, tty bool) error {
 	defer release()
 
 	paths := c.job(kind).Paths
-	if kind == "backup" {
+	if kind == "backup" && c.backupScope() == scopeMachine {
 		writeManifests()
 		paths = append(slices.Clone(paths), manifestDir()) // always ship the recipe, even if $HOME isn't listed
 	}
@@ -130,7 +130,11 @@ func runJob(c Config, kind string, tty bool) error {
 	if len(existing) == 0 {
 		return fmt.Errorf("none of the %s paths exist: %s", kind, strings.Join(paths, ", "))
 	}
-	args := slices.Concat([]string{"backup", "--json", "--host", c.Host, "--tag", kind, "--one-file-system", "--retry-lock", "10m"},
+	tags := []string{"--tag", kind}
+	if kind == "backup" && c.backupScope() == scopeDataOnly {
+		tags = append(tags, "--tag", scopeDataOnly)
+	}
+	args := slices.Concat([]string{"backup", "--json", "--host", c.Host, "--one-file-system", "--retry-lock", "10m"}, tags,
 		c.excludeArgs(), []string{"--"}, existing)
 
 	sum, unreadable, err := r.backupRun(kind, args, tty)
@@ -139,7 +143,7 @@ func runJob(c Config, kind string, tty bool) error {
 	case 0:
 	case exitPartial:
 		user := slices.DeleteFunc(slices.Clone(unreadable), func(p string) bool {
-			return slices.ContainsFunc(systemPaths, func(s string) bool { return strings.HasPrefix(p, s) })
+			return c.backupScope() == scopeMachine && slices.ContainsFunc(systemPaths, func(s string) bool { return strings.HasPrefix(p, s) })
 		})
 		if len(user) == 0 {
 			break
@@ -212,13 +216,14 @@ type JobStatus struct {
 }
 
 type Status struct {
-	Target    string    `json:"target"`
-	Host      string    `json:"host"`
-	Online    bool      `json:"online"`
-	Error     string    `json:"error,omitempty"`
-	Scheduler bool      `json:"scheduler"`
-	Snapshot  JobStatus `json:"snapshot"`
-	Backup    JobStatus `json:"backup"`
+	Target      string    `json:"target"`
+	Host        string    `json:"host"`
+	BackupScope string    `json:"backup_scope"`
+	Online      bool      `json:"online"`
+	Error       string    `json:"error,omitempty"`
+	Scheduler   bool      `json:"scheduler"`
+	Snapshot    JobStatus `json:"snapshot"`
+	Backup      JobStatus `json:"backup"`
 }
 
 func (s *Status) job(kind string) *JobStatus {
@@ -251,7 +256,7 @@ func (s *Status) live() {
 }
 
 func getStatus(c Config) Status {
-	st := Status{Target: redact(c.Target), Host: c.Host, Scheduler: true}
+	st := Status{Target: redact(c.Target), Host: c.Host, BackupScope: c.backupScope(), Scheduler: true}
 	var snaps []Snap
 	r, err := newRestic(c)
 	if err == nil {

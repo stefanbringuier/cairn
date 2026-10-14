@@ -140,14 +140,21 @@ func Run(args []string, version string) int {
 		}
 	case "init":
 		pw := fs.Bool("password", false, "encrypt the repo with a password")
+		dataOnly := fs.Bool("data-only", false, "save only configured sources, without machine rebuild additions")
 		var paths []string
 		fs.Func("path", "back up this path instead of $HOME (repeatable)", func(v string) error { paths = append(paths, expand(v)); return nil })
 		pos := parse(fs, args)
 		if len(pos) != 1 {
-			err = &cliError{exitNeedsYes, "usage: cairn init <target> [--password] [--path P]... [-y]"}
+			err = &cliError{exitNeedsYes, "usage: cairn init <target> [--password] [--data-only] [--path P]... [-y]"}
 			break
 		}
-		err = cmdInit(pos[0], *pw, paths, *yes)
+		var requestedScope *bool
+		fs.Visit(func(f *flag.Flag) {
+			if f.Name == "data-only" {
+				requestedScope = dataOnly
+			}
+		})
+		err = cmdInit(pos[0], *pw, paths, *yes, requestedScope)
 	case "dashboard", "status":
 		parse(fs, args)
 		var c Config
@@ -258,7 +265,18 @@ func reportError(err error) int {
 	return code
 }
 
-func cmdInit(target string, password bool, paths []string, yes bool) error {
+func cmdInit(target string, password bool, paths []string, yes bool, dataOnly *bool) error {
+	c, err := loadConfig()
+	existing := err == nil
+	if err != nil {
+		if _, statErr := os.Stat(configFile()); !os.IsNotExist(statErr) {
+			return err // invalid existing settings must not be silently replaced
+		}
+		c = defaultConfig()
+	}
+	if err := c.initScope(dataOnly, paths, existing); err != nil {
+		return &cliError{exitNeedsYes, err.Error()}
+	}
 	repo, err := repoFor(target)
 	if err != nil {
 		return err
@@ -279,15 +297,7 @@ func cmdInit(target string, password bool, paths []string, yes bool) error {
 	} else if !password && !strings.HasPrefix(repo, "rest:") {
 		warn("no password: anyone who can read " + redact(target) + " can read your files (use --password for cloud targets)")
 	}
-	c, err := loadConfig()
-	if err != nil {
-		c = defaultConfig()
-	}
 	c.Target, c.Repo, c.Since = target, repo, time.Now()
-	if len(paths) > 0 {
-		c.Snapshot.Paths = paths
-		c.Backup.Paths = append(slices.Clone(paths), "/etc", "/usr/share/keyrings")
-	}
 	created, shown := false, ""
 	if password {
 		if created, shown, err = setupPassword(); err != nil {
@@ -429,6 +439,11 @@ func cmdHistory(c Config, p string, asJSON bool) error {
 func renderSettings(c Config) string {
 	row := func(k, v string) string { return "  " + dim.Render(fmt.Sprintf("%-15s", k)) + v }
 	lines := []string{accent.Render("cairn") + "  " + redact(c.Target) + dim.Render("  host "+c.Host)}
+	scope := "machine (system paths and rebuild manifests)"
+	if c.backupScope() == scopeDataOnly {
+		scope = "data-only (configured paths; no machine rebuild)"
+	}
+	lines = append(lines, row("backup.scope", scope))
 	for _, kind := range []string{"snapshot", "backup"} {
 		j := c.job(kind)
 		lines = append(lines, row(kind+".every", j.Every), row(kind+".keep", j.Keep), row(kind+".paths", tildifyAll(j.Paths)))
