@@ -208,6 +208,38 @@ try {
   await page.evaluate(() => {
     terminal.reset();
     terminal.resize(110, 32);
+    document.querySelector(".label").textContent = "cairn · choose a profile";
+  });
+  startFixture("chooser");
+  await ready("Choose a profile");
+  await ready("personal");
+  await ready("phin");
+  await grab("profile-chooser");
+  for (const cols of [40, 60, 110]) {
+    await page.evaluate((width) => terminal.resize(width, 24), cols);
+    fixture.stdin.write(JSON.stringify({ resize: [24, cols] }) + "\n");
+    await ready("Choose a profile");
+    await ready("ctrl+c");
+  }
+  await key("/");
+  await key("no-such-profile");
+  await ready("Nothing matched");
+  await key("\u001b");
+  await ready("personal");
+  await key("/");
+  await key("phin");
+  await ready("Filter: phin");
+  await key("\r");
+  await ready("filtered");
+  await key("\r");
+  await ready("BACKUP TARGET · phin");
+  await ready("0 kept");
+  await key("q");
+  await stopFixture();
+  console.log("Verified named-only startup, empty filtering, profile selection and 40/60/110×24 resizing.");
+  await page.evaluate(() => {
+    terminal.reset();
+    terminal.resize(110, 32);
     document.querySelector(".label").textContent = "cairn restore launch-plan.md";
   });
   startFixture("restore");

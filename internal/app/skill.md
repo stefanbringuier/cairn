@@ -75,8 +75,18 @@ package installation starts.
 Every operation selects exactly one profile. Use the **global prefix before
 the command**, `cairn --profile NAME <command>` (also `--profile=NAME`). With
 no command, `cairn --profile NAME` opens that profile's dashboard on a TTY or
-prints its status. Omission **always selects `default`**; there is no stored
-active choice and no implicit loop over profiles. Select the repository before
+prints its status. Omission selects `default` for commands and scripts. The
+exception is unqualified interactive `cairn` / `cairn dashboard`: if the default
+config is absent and named profiles exist, it offers a startup chooser. The
+user must choose even with one profile. Names/scopes/redacted targets are
+listed; `/` filters names/targets, Enter accepts the filter, a separate Enter
+opens the highlighted profile, Esc clears filtering or quits, and Ctrl+C
+always quits (exit 1). No config/timers change. Explicit `--profile default`,
+other explicit selections, non-TTY, `status`, and `dashboard --json` never
+fall back. Invalid configs and dangling default config symlinks remain errors.
+The chooser does not switch profiles within a running dashboard. Use the
+singular flag `--profile NAME`; `--profiles` is rejected with exit 2.
+There is no stored active choice and no implicit loop over profiles. Select the repository before
 using snapshot IDs, settings or recovery results. Profile names are 1–48
 lowercase ASCII letters, digits or hyphens, starting and ending with a letter
 or digit. Invalid names exit 2. Arguments after the command's `--` remain

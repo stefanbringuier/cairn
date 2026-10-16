@@ -98,6 +98,7 @@ func parse(fs *flag.FlagSet, args []string) []string {
 
 // Run dispatches a command and returns its process exit status.
 func Run(args []string, version string) int {
+	explicitProfile := len(args) > 0 && (args[0] == "--profile" || strings.HasPrefix(args[0], "--profile="))
 	name, args, err := selectProfile(args)
 	if err != nil {
 		return reportError(err)
@@ -177,10 +178,16 @@ func Run(args []string, version string) int {
 	case "dashboard", "status":
 		parse(fs, args)
 		var c Config
-		if c, err = loadConfig(); err != nil {
+		interactive := cmd == "dashboard" && isTTY() && !*asJSON
+		if interactive && !explicitProfile {
+			c, err = dashboardConfig(chooseStartupProfile)
+		} else {
+			c, err = loadConfig()
+		}
+		if err != nil {
 			break
 		}
-		if cmd == "dashboard" && isTTY() {
+		if interactive {
 			err = runTUI(c)
 			break
 		}
