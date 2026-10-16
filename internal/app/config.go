@@ -114,7 +114,7 @@ func defaultConfig() Config {
 func loadConfig() (Config, error) {
 	c, err := loadProfile(selectedProfile)
 	if os.IsNotExist(err) {
-		return c, fmt.Errorf("profile %s is not set up yet: run `%s init <target>`: %w", selectedProfile, profileCommand(), err)
+		return c, fmt.Errorf("profile %s is not set up yet: list existing profiles with `cairn profiles`, open one with `cairn --profile NAME`, or create this profile with `%s init <target>`: %w", selectedProfile, profileCommand(), err)
 	}
 	return c, err
 }

@@ -86,7 +86,23 @@ recipe; a failed manifest export stops before package installation.
 Select a profile with `cairn --profile NAME <command>` (or `--profile=NAME`),
 before the command. With no command, it opens that profile's dashboard. Selection
 applies to init, status, settings, manual runs, history, diff, recover, restore,
-and rebuild. There is no saved active choice: omission always selects `default`.
+and rebuild. There is no saved active choice: omission selects `default`.
+On an interactive terminal only, an unqualified `cairn` or `cairn dashboard`
+with no default config offers a startup chooser if named profiles exist. It
+lists names, backup scopes and redacted destinations, sorted by name; `/`
+filters names/destinations and Enter opens the highlighted profile. Accepting
+filter text requires a separate Enter to open. Esc clears filtering or quits;
+q quits outside filter entry and Ctrl+C always quits (exit 1). Even one profile
+requires selection. The choice lasts for this invocation and writes no config
+or timers. Invalid/unreadable default config and dangling config symlinks do
+not fall back. Invalid named inventory aborts without silently omitting profiles.
+The chosen config is revalidated before opening its dashboard.
+
+Explicit `--profile` (including `--profile default`), non-TTY invocations,
+`status`, `dashboard --json`, and all other commands never use the chooser.
+Missing-config errors explain listing/selecting existing profiles as well as
+initialization. The plural typo `--profiles` or `--profiles=NAME` exits 2 with
+guidance to use `--profile NAME` or `cairn profiles`.
 Names contain 1–48 lowercase ASCII letters, digits, or hyphens, begin with a
 letter or digit, and end with a letter or digit. Invalid names exit 2 before
 accessing configuration. Arguments after `--` remain literal.

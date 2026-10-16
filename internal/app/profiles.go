@@ -30,6 +30,9 @@ func selectProfile(args []string) (string, []string, error) {
 	if len(args) == 0 {
 		return name, args, nil
 	}
+	if args[0] == "--profiles" || strings.HasPrefix(args[0], "--profiles=") {
+		return "", nil, &cliError{exitNeedsYes, "use singular --profile NAME to open a profile; use `cairn profiles` to list profiles"}
+	}
 	if args[0] == "--profile" {
 		if len(args) < 2 {
 			return "", nil, &cliError{exitNeedsYes, "--profile needs a name"}

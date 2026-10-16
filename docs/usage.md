@@ -97,9 +97,30 @@ Put `--profile NAME` **before the command**. It selects settings, passwords,
 run state and the repository for every operation, including history, diff,
 recover, restore and rebuild. Names use 1–48 lowercase letters, digits or
 hyphens and begin and end with a letter or digit. Selection is never saved:
-`cairn` and commands without the prefix always use `default`. Existing setups
+Commands without the prefix use `default`, with the interactive startup
+exception below. Existing setups
 become that default profile in place, keeping their settings, passwords, state
 and timer names. There is no migration command.
+
+If you have only named profiles, running `cairn` in a terminal shows **Choose
+a profile** instead of asking you to initialize another repository. Use the
+arrow keys to choose, `/` to filter names or destinations, and Enter to open.
+After entering a filter, press Enter to accept it and Enter again to open the
+highlighted profile. Esc clears filtering or quits; Ctrl+C always quits.
+The choice is not saved and your schedules keep running independently. If a
+default profile exists, `cairn` opens it directly. Explicit `--profile NAME`,
+scripts, `status` and `--json` keep their usual strict selection behavior.
+Use singular `--profile`, not `--profiles`:
+
+```sh
+cairn --profile personal
+cairn --profile phin
+```
+
+The chooser is for startup; switching within an open dashboard is not yet
+available. Quit the dashboard and reopen it to select another profile.
+
+![Startup profile chooser from the running app](images/profile-chooser.png)
 
 ```sh
 cairn --profile cloud snapshot

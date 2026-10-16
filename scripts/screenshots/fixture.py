@@ -70,6 +70,24 @@ def main():
             "snapshot": {"every": "1h", "keep": "24h,7d,4w", "paths": [str(workspace)]},
             "backup": {"every": "daily", "keep": "7d,4w,12m", "paths": [str(workspace)]},
         }))
+        if mode == "chooser":
+            # Named-only setup: separate real local repositories, no default.
+            saved = json.loads(config.joinpath("config.json").read_text())
+            config.joinpath("config.json").unlink()
+            for name in ["personal", "phin"]:
+                named = config / "profiles" / name
+                named.mkdir(parents=True)
+                recipe = dict(saved)
+                recipe["target"] = (
+                    "/mnt/" + "personal-nas-folders/" * 10 + "PERSONAL"
+                    if name == "personal" else "phin-example:BACKUPS/TARS (setup example)"
+                )
+                recipe["backup_scope"] = "data-only" if name == "personal" else "machine"
+                if name == "phin":
+                    other_repo = root / "phin-repository"
+                    restic(other_repo, "init")
+                    recipe["repo"] = str(other_repo)
+                named.joinpath("config.json").write_text(json.dumps(recipe))
         tools = root / "bin"
         tools.mkdir()
         # Only scheduler metadata is a fixture; no host timers are read or changed.

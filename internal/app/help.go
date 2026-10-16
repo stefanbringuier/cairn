@@ -27,7 +27,7 @@ const usage = `cairn — a way back to your files, with restic as your trail
 
 Try cairn help restore or cairn restore --help for examples and flags.
 Select a profile before the command: cairn --profile nas status.
-Omitting --profile always uses default; existing setups keep their settings.
+Omitting --profile uses default; interactive startup offers a chooser if missing.
 In the dashboard: ? explains the basics; t shows storage options.
 Linux. Automatic schedules use systemd user timers; sources are local paths.
 `
@@ -140,6 +140,9 @@ letter or digit. default keeps the original files and timer names. Each other
 profile has its own settings, password and state under cairn/profiles/NAME.
 Selection must come before the command; it is never saved as an active choice.
 Backup jobs share one lock. Profiles need separate repositories for retention.
+With no default config, interactive cairn offers a startup chooser for existing
+profiles. Selection lasts for that invocation; scripts and explicit --profile
+never fall back. Use singular --profile NAME, not --profiles.
 `
 	case "targets":
 		return "cairn targets [--json]\n\n--json prints structured setup guides for scripts and agents.\n\n" + targetGuide()
@@ -200,7 +203,7 @@ when replacing current work is explicitly intended.
 	case "history":
 		return "cairn history <file-or-folder> [--json]\n\nList saved versions, newest first. Use a snapshot ID with restore --at\nto pick one. --json prints structured output for scripts and agents.\n"
 	case "status", "dashboard":
-		return "cairn [status] [--json]\n\nSee where backups go, whether the target is reachable, and the last and\nnext runs. --json prints structured output. With no command, an interactive\nterminal opens the dashboard; ? explains it and t shows destination options.\n"
+		return "cairn [status] [--json]\n\nSee where backups go, whether the target is reachable, and the last and\nnext runs. --json prints structured output. With no command, an interactive\nterminal opens the dashboard; ? explains it and t shows destination options.\nIf no default config exists, interactive startup offers existing profiles.\nUse arrows, / to filter, Enter to accept a filter, then Enter to open; Esc\nclears filtering or quits, and Ctrl+C always quits. Selection is not saved.\nExplicit --profile NAME, status, scripts and --json never use the chooser.\n"
 	case "set":
 		return `cairn set [<key> <value>] [--json]
 

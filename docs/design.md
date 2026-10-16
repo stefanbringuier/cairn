@@ -32,6 +32,16 @@ progress, pruning marker, rebuild scratch and printed commands all use that
 selection. When a path contains terminal controls, undo prints the profile and
 snapshot ID instead of constructing a command from a sanitized path.
 Dependency binaries remain shared.
+Unqualified interactive dashboard startup checks for an absent default config
+before any repository work. If named profiles exist, a separate Bubble Tea
+startup chooser displays local validated configuration only (no repository or
+scheduler queries, tool downloads or writes). After the chooser exits, re-read
+the chosen configuration and set the invocation's selection before starting
+the dashboard and its asynchronous work. This does not mutate selection while
+repository commands are in flight. Explicit selection, non-TTY commands and
+JSON retain strict default/profile behavior; malformed configs and dangling
+default config symlinks cannot trigger fallback. Full switching inside a live
+dashboard is separate work; the startup chooser does not provide that feature.
 Each profile also selects machine or data-only scope. Data-only exclusions cover
 all default/named manifests and orphaned state, preventing recipes from another
 profile leaking into a HOME source. Rclone accounts and definitions remain in

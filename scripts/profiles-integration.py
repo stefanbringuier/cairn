@@ -1,17 +1,58 @@
 """Check profile isolation and legacy compatibility using disposable repositories."""
 
+import fcntl
 import json
 import os
 from pathlib import Path
 import re
+import pty
+import select
 import shlex
 import shutil
 import subprocess
+import struct
 import sys
 import tempfile
+import termios
+import time
 
 
 BINARY = str(Path(sys.argv[1]).resolve())
+
+
+def terminal_run(args, env, cwd, steps=()):
+    """Drive the real program with both stdin and stdout attached to a terminal."""
+    master, slave = pty.openpty()
+    fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 60, 0, 0))
+    process = subprocess.Popen([BINARY, *args], env=env, cwd=cwd,
+                               stdin=slave, stdout=slave, stderr=slave, start_new_session=True)
+    os.close(slave)
+    output = bytearray()
+    pending = list(steps)
+    deadline = time.monotonic() + 30
+    try:
+        while time.monotonic() < deadline:
+            if select.select([master], [], [], 0.1)[0]:
+                try:
+                    data = os.read(master, 65536)
+                except OSError:
+                    break
+                if not data:
+                    break
+                output.extend(data)
+                if pending and pending[0][0].encode() in output:
+                    _, keys = pending.pop(0)
+                    os.write(master, keys.encode())
+            elif process.poll() is not None:
+                break
+        assert not pending, (args, pending, output.decode(errors="replace"))
+        process.wait(timeout=5)
+        return process.returncode, output.decode(errors="replace")
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.wait()
+        os.close(master)
 
 
 def main():
@@ -229,6 +270,31 @@ exit 0
         assert json.loads(run("--profile", "data", "status", "--json"))["backup_scope"] == "data-only"
         scopes = {item["name"]: item["backup_scope"] for item in json.loads(run("profiles", "--json"))}
         assert scopes == {"cloud": "machine", "data": "data-only", "default": "machine"}
+        # Real named-only startup: no default, no implicit reinitialization.
+        config.joinpath("config.json").unlink()
+        originals = {path: path.read_bytes() for path in config.rglob("*") if path.is_file()}
+        original_units = {path: path.read_bytes() for path in units.iterdir() if path.is_file()}
+        run(expected=1)
+        run("dashboard", "--json", expected=1)
+        code, output = terminal_run([], env, workspace, [("Choose a profile", "\x03")])
+        assert code == 1 and "cancelled" in output, (code, output)
+        code, output = terminal_run([], env, workspace, [
+            ("Choose a profile", "/cloud"), ("1 filtered", "\r\r"),
+            ("BACKUP TARGET · cloud", "q"),
+        ])
+        assert code == 0 and "BACKUP TARGET · cloud" in output, (code, output)
+        for args in (["--profile", "default"], ["--profile=missing"], ["dashboard", "--json"]):
+            code, output = terminal_run(args, env, workspace)
+            assert code == 1 and "Choose a profile" not in output, (args, code, output)
+            assert "cairn profiles" in output, output
+        code, output = terminal_run(["--profiles", "cloud"], env, workspace)
+        assert code == 2 and "singular --profile NAME" in output, (code, output)
+        code, output = terminal_run(["--profile", "cloud", "dashboard", "--json"], env, workspace)
+        assert code == 0 and json.loads(output)["profile"] == "cloud", (code, output)
+        assert not config.joinpath("config.json").exists()
+        assert all(path.read_bytes() == contents for path, contents in originals.items())
+        assert all(path.read_bytes() == contents for path, contents in original_units.items())
+        print("Passed: named-only startup chooser/cancel, filtered selection, explicit missing profile, TTY JSON, plural flag guidance and unchanged config/passwords/timer units.", flush=True)
         print("Passed: legacy profiles in place, isolated encrypted repositories/settings/state, independent timer inventory, generated timer XDG/profile invocation, exclusions, profile-qualified diff/recover/restore/undo, external config/password link protection, rejected duplicate repositories and failed init rollback.")
 
 
