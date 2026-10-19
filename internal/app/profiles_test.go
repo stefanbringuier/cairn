@@ -214,7 +214,15 @@ func TestProfileSchedulesPreserveLegacyUnitsAndXDGRoots(t *testing.T) {
 	}
 	log := filepath.Join(root, "systemctl.log")
 	t.Setenv("CAIRN_TEST_SYSTEMCTL_LOG", log)
-	if err := os.WriteFile(filepath.Join(bin, "systemctl"), []byte("#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$CAIRN_TEST_SYSTEMCTL_LOG\"\nexit 0\n"), 0o700); err != nil { // #nosec G306 -- executable isolated fixture
+	// Report a timer as running while its unit file exists.
+	script := `#!/bin/sh
+printf '%s\n' "$*" >> "$CAIRN_TEST_SYSTEMCTL_LOG"
+if [ "$2" = show ] && [ "$4" = ActiveState ]; then
+  if [ -e "$XDG_CONFIG_HOME/systemd/user/$6" ]; then echo active; else echo inactive; fi
+fi
+exit 0
+`
+	if err := os.WriteFile(filepath.Join(bin, "systemctl"), []byte(script), 0o700); err != nil { // #nosec G306 -- executable isolated fixture
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin+":"+os.Getenv("PATH"))

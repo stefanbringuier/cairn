@@ -207,7 +207,7 @@ do not reconstruct a replacement destination from sanitized terminal text.
 - Any restic URL: `sftp:user@host:/path`, `s3:...`, `b2:...`, `rest:...`.
 - SMB/NFS mounts work as local paths. Direct SMB through rclone uses `nas:share/path` after `cairn cloud setup`; Google Drive uses `gdrive:backups` and requires a user-configured Google API client ID. Other writable remotes include Dropbox, OneDrive, and WebDAV. Native restic schemes also include `azure:`, `gs:`, and `swift:`.
 - Destinations hold restic repositories. Source paths are local; mount or sync remote source data first and explicitly add mounted sources with `cairn set snapshot.paths +/mnt/data`.
-- Scheduled cloud access needs credentials available to the systemd user manager. Init warns and succeeds if scheduling is unavailable; snapshot, backup, and restore can still run manually.
+- Scheduled cloud access needs credentials available to the systemd user manager. Init warns and succeeds if scheduling is unavailable, including when systemctl runs in a sandbox or container that cannot reach the user manager and its timers never start; snapshot, backup, and restore can still run manually. Rerun `init` from a normal login shell to install the schedule.
 
 restic and rclone are downloaded automatically (pinned and hash-checked) into
 `${XDG_DATA_HOME:-$HOME/.local/share}/cairn/bin` if they're missing. Cloud setup
