@@ -85,7 +85,11 @@ case "$operation" in
   enable) for unit in "$@"; do case "$unit" in *.timer) touch "$CAIRN_PROFILE_ENABLED/$unit" ;; esac; done ;;
   disable) for unit in "$@"; do case "$unit" in *.timer) rm -f "$CAIRN_PROFILE_ENABLED/$unit" ;; esac; done ;;
   is-enabled) if [ -f "$CAIRN_PROFILE_ENABLED/$1" ]; then echo enabled; else echo disabled; exit 1; fi ;;
-  show) printf 'NextElapseUSecRealtime=\nActiveState=active\n\nActiveState=inactive\nResult=success\nExecMainStatus=0\nExecMainExitTimestamp=\n' ;;
+  show) if [ "$2 $3" = "ActiveState --value" ]; then
+          if [ -f "$CAIRN_PROFILE_ENABLED/$4" ]; then echo active; else echo inactive; fi
+        else
+          printf 'NextElapseUSecRealtime=\nActiveState=active\n\nActiveState=inactive\nResult=success\nExecMainStatus=0\nExecMainExitTimestamp=\n'
+        fi ;;
 esac
 exit 0
 ''')
