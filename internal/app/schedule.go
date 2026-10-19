@@ -120,11 +120,16 @@ func applySchedule(c Config) error {
 		return fmt.Errorf("systemctl --user daemon-reload: %s", strings.TrimSpace(string(out)))
 	}
 	for _, kind := range []string{"snapshot", "backup"} {
+		timer, want, verb := unitName(kind)+".timer", "active", "start"
 		if c.job(kind).Every == "off" {
-			continue
+			want, verb = "inactive", "stop"
+		} else if out, err := systemctl("enable", "--now", timer); err != nil {
+			return fmt.Errorf("enable %s: %s", timer, strings.TrimSpace(string(out)))
 		}
-		if out, err := systemctl("enable", "--now", unitName(kind)+".timer"); err != nil {
-			return fmt.Errorf("enable %s.timer: %s", unitName(kind), strings.TrimSpace(string(out)))
+		// Where systemctl thinks it's in a chroot (some sandboxes and containers) it exits 0
+		// after only writing enable symlinks, so check what the user manager actually runs.
+		if out, _ := systemctl("show", "-p", "ActiveState", "--value", timer); strings.TrimSpace(string(out)) != want {
+			return fmt.Errorf("systemd didn't %s %s (%s)", verb, timer, strings.TrimSpace(string(out)))
 		}
 	}
 	return nil

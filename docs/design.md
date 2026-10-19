@@ -51,7 +51,9 @@ Timers use `cairn-NAME-{snapshot,backup}` for named profiles and the original
 unit names for default. Their ExecStart explicitly selects the profile and
 Environment preserves absolute XDG config, state, data and cache roots.
 Validate all roots and schedules before writing units; reject characters
-systemd would reinterpret. Inventory reports actual enabled state separately
+systemd would reinterpret. Afterwards confirm each timer's `ActiveState` with
+the user manager, because systemctl in a chroot-like sandbox exits 0 without
+starting or stopping anything. Inventory reports actual enabled state separately
 from configured frequency, including unknown when systemd is unavailable.
 
 Keep the existing state-root flock across all profiles. This deliberately

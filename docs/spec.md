@@ -281,6 +281,10 @@ or `cairn-NAME-{snapshot,backup}.{service,timer}` for named profiles:
 - ExecStart explicitly selects the profile. Services carry resolved absolute
   XDG config, state, data and cache roots and the user's PATH. Unsafe systemd
   characters in executable/root paths abort schedule installation before writes.
+- After enabling or disabling, the timer's `ActiveState` must be `active`, or
+  `inactive` for `off`. Where systemctl believes it runs in a chroot (some
+  sandboxes and containers) it exits 0 while ignoring daemon-reload and start or
+  stop, writing only enable symlinks; that counts as a scheduling failure.
 
 ## Files
 - `~/.config/cairn/config.json`: the config
@@ -311,7 +315,9 @@ automatic background updater.
 
 Releases provide statically linked Linux amd64 and arm64 binaries. Automatic
 dependency downloads cover those architectures. systemd user timers are needed
-for automatic scheduling. If scheduling setup fails, init saves the config,
-warns, and succeeds; manual snapshot, backup, and restore remain available.
+for automatic scheduling. If scheduling setup fails, including when the user
+manager does not actually start or stop a timer, init saves the config, warns,
+skips the background first snapshot, and succeeds; `set` reports the error.
+Manual snapshot, backup, and restore remain available.
 CLI startup is checked separately across Linux
 distributions. `rebuild` only offers installed package managers.
