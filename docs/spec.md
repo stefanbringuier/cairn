@@ -303,6 +303,11 @@ or `cairn-NAME-{snapshot,backup}.{service,timer}` for named profiles:
 
 ## Supported builds
 
+The module pins Go 1.27.3 or newer so builds include the `crypto/x509`
+certificate-verification fix for [GO-2026-6809](https://pkg.go.dev/vuln/GO-2026-6809).
+CI and release builds read the compiler version from `go.mod`; do not bypass
+the vulnerability check when updating that pin.
+
 `scripts/install.sh` installs the latest Linux amd64 or arm64 release into
 `~/.local/bin` without sudo, after verifying the archive against the release's
 SHA-256 checksum. `CAIRN_VERSION=vX.Y.Z` selects a release and
