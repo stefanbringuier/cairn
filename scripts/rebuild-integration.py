@@ -232,13 +232,14 @@ elif args and args[0] == "show":
         return self.run(*args[3:])
 
 
-def cancel_in_terminal(fixture, command=None):
+def cancel_in_terminal(fixture, command=None, *, term):
     if command is None:
         command = ["rebuild", "--host", "old-box", "--no-home", "--map", f"{fixture.old}={fixture.dest}"]
     args = [BINARY, "--profile", "phin", *map(str, command)]
     master, slave = pty.openpty()
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 32, 110, 0, 0))
-    process = subprocess.Popen(args, env=fixture.env, cwd=fixture.root, stdin=slave,
+    env = {**fixture.env, "TERM": term}
+    process = subprocess.Popen(args, env=env, cwd=fixture.root, stdin=slave,
                                stdout=slave, stderr=slave, start_new_session=True)
     os.close(slave)
     output = bytearray()
@@ -251,15 +252,24 @@ def cancel_in_terminal(fixture, command=None):
                     data = os.read(master, 65536)
                 except OSError:
                     break
+                if not data:
+                    break
                 output.extend(data)
                 if not answered and (b"Cancel" in output or b"[y/N]" in output):
-                    # Huh uses its plain terminal fallback when TERM/color
-                    # capabilities are unavailable; both are real PTY flows.
-                    os.write(master, b"n\n" if b"[y/N]" in output else b"\x1b")
+                    # Huh's full form needs an actual negative selection plus
+                    # Enter; Escape is not its cancellation key. CR also works
+                    # in the plain fallback through the PTY's input mapping.
+                    os.write(master, b"n\r")
                     answered = True
-        assert answered, ("no confirmation", output.decode(errors="replace"))
-        process.wait(timeout=5)
-        assert process.returncode != 0, output.decode(errors="replace")
+        diagnostic = ("TERM=" + term, args, output.decode(errors="replace"))
+        assert answered, ("no confirmation", diagnostic)
+        expected_prompt = b"[y/N]" if term == "dumb" else b"Cancel"
+        assert expected_prompt in output, ("unexpected terminal prompt mode", diagnostic)
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired as error:
+            raise AssertionError(("negative confirmation did not exit", diagnostic)) from error
+        assert process.returncode == 1, ("unexpected cancellation exit", process.returncode, diagnostic)
     finally:
         if process.poll() is None:
             process.kill()
@@ -307,9 +317,10 @@ def main():
         f.rebuild(expected=2)
         f.assert_no_mutation(before, ids)
         assert not f.dest.exists()
-        cancel_in_terminal(f)
-        f.assert_no_mutation(before, ids)
-        assert not f.dest.exists()
+        for term in ("xterm-256color", "dumb"):
+            cancel_in_terminal(f, term=term)
+            f.assert_no_mutation(before, ids)
+            assert not f.dest.exists(), term
         # Invalid second entries must be rejected before even a valid first mapping writes.
         forbidden = [(f.root / "unknown", f.second_dest),
                      (f.second, f.dest / "nested"),
@@ -349,7 +360,7 @@ def main():
         f.rebuild([(f.old, secrets)], "-y", expected=None)
         f.assert_no_mutation(before, ids)
         assert external_password.read_bytes() == password_bytes and f.password.is_symlink()
-        print("Passed: no-TTY refusal, real-PTY cancellation and all-mapping validation/protected path checks before writes.", flush=True)
+        print("Passed: no-TTY refusal, xterm/dumb real-PTY cancellation and all-mapping validation/protected path checks before writes.", flush=True)
 
         f = Fixture(root / "old-home-alias", real_restic)
         old_home = f.saved_home()
@@ -494,10 +505,11 @@ def main():
         f.run("init", f.repo, expected=2)
         f.assert_no_mutation(before, ids)
         assert f.password.read_bytes() == password
-        prompt = cancel_in_terminal(f, ["init", f.repo])
-        assert "old-box" in prompt and os.uname().nodename in prompt, prompt
-        f.assert_no_mutation(before, ids)
-        assert f.password.read_bytes() == password
+        for term in ("xterm-256color", "dumb"):
+            prompt = cancel_in_terminal(f, ["init", f.repo], term=term)
+            assert "old-box" in prompt and os.uname().nodename in prompt, (term, prompt)
+            f.assert_no_mutation(before, ids)
+            assert f.password.read_bytes() == password, term
         # A second real disposable repository has a different key. Reconnecting
         # fails without publishing the in-memory host/target changes or timers.
         locked_repo = f.root / "different-key-repository"
@@ -525,7 +537,7 @@ def main():
         assert all(any(snap["id"] == old_id for snap in snapshots) for old_id in ids), snapshots
         assert any(snap["hostname"] == os.uname().nodename for snap in snapshots), snapshots
         assert not f.package_log.read_text()
-        print("Passed: reinit cancellation/no-TTY and real wrong-key refusal preserve config/password/timers; success starts current-host series retaining settings and history.", flush=True)
+        print("Passed: reinit xterm/dumb cancellation/no-TTY and real wrong-key refusal preserve config/password/timers; success starts current-host series retaining settings and history.", flush=True)
 
         f = Fixture(root / "legacy", real_restic)
         old_home = f.root / "legacy-old-home"
