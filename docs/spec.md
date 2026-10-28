@@ -47,10 +47,9 @@ list. `--data-only=false --path P` returns to machine scope. Schedules,
 retention, and excludes survive either change; historical snapshots remain in
 the repository and can be inspected or recovered normally.
 
-`rebuild` refuses a data-only configuration before repository access. Under
-machine scope, it ignores snapshots tagged `data-only` when selecting a rebuild
-recipe or home version. Use `history`, `recover`, or `restore` for data-only
-backups. Untagged historical backups retain the legacy machine behavior.
+`rebuild --map OLD=NEW` supports data-only configurations with home and package
+steps implicitly skipped. Machine scope still excludes snapshots tagged
+`data-only` from its rebuild sources. Untagged historical backups retain the legacy machine behavior.
 Rebuild always stages package/crontab manifests from the chosen machine backup
 in a fresh directory, including when that source lived under the old home.
 Newer home snapshots and current manifests cannot supply or supplement its
@@ -68,7 +67,7 @@ recipe; a failed manifest export stops before package installation.
 | `cairn history <path> [--json]` | versions of a path |
 | `cairn diff <from> [<to>] [--path P] [--metadata] [--json]` | compare saved snapshots, with `to` defaulting to latest; read-only |
 | `cairn recover <path> [--at A] [--to T] [--json]` | export a new copy; never replace an existing destination |
-| `cairn rebuild [--host H] [--from OLDHOME] [-y]` | fresh machine: restore the home, stage `/etc`, reinstall packages one confirmed step at a time |
+| `cairn rebuild [--host H] [--from OLDHOME | --no-home] [--map OLD=NEW]... [--no-packages] [--at A] [-y]` | fresh machine: restore the home, stage `/etc`, reinstall packages one confirmed step at a time |
 | `cairn set <key> <value>` | `snapshot.every`, `snapshot.keep`, `snapshot.paths`, `backup.every`, `backup.keep`, `backup.paths`, `exclude` |
 | `cairn --skill` | print the agent skill |
 | `cairn targets [--json]` | destination examples and setup instructions; no connection or config changes; JSON is an array of `{name, summary, setup, detail}` |
@@ -321,3 +320,78 @@ skips the background first snapshot, and succeeds; `set` reports the error.
 Manual snapshot, backup, and restore remain available.
 CLI startup is checked separately across Linux
 distributions. `rebuild` only offers installed package managers.
+
+## New-host rebuild mappings
+
+`--map OLD=NEW` selects an absolute saved path and an **exact** absolute local
+destination (an existing directory is not treated as a container). Sources are
+selected only from the chosen host before the profile's `since` cutoff; any
+`pre-restore` tag is excluded, including mixed tags. `--at` selects mapped-path
+versions by the usual ID/date/age/latest syntax. Home selection remains newest
+eligible and independent of `--at`. Missing sources fail during preflight and
+list the host's saved top-level paths. Data-only scope implies `--no-home` and
+`--no-packages`; a rebuild without home restoration requires at least one map.
+`--from` cannot accompany `--no-home` or data-only scope. Without a package
+manifest in the chosen machine backup, package and `/etc` steps are skipped.
+
+Before restoring anything, validate every mapping, pin its source snapshot and
+node, and print host, OLD → NEW, snapshot kind/ID/age, destination existence,
+and any home/package steps. Reject duplicate normalized OLD paths, overlapping
+canonical destinations, destinations inside another OLD or old home, overlap
+with current home, configured local repositories, configuration root and
+external config/password symlink targets. OLD remains a lexical snapshot path;
+local symlinks cannot reinterpret its meaning. Destination validation repeats
+before each safety snapshot. Stable trusted destination ancestors and paused
+writers are still required; this is not protection against a hostile filesystem.
+
+A non-TTY invocation without `-y` exits 2 before tool acquisition, backup,
+restore or configuration writes. In a TTY, one confirmation covers the plan;
+cancelling changes no repository, destination, settings or timers. Planning may
+install the pinned restic/rclone tools and populate their read caches. Package
+steps retain their existing individual confirmations; `-y` skips prompts but
+never grants authority for a real restore or installation.
+
+Mapped restores run in order **before** any whole-home restore. Each existing
+NEW gets the normal complete verified pre-restore snapshot, including excluded
+files, and its undo command is printed before replacement. Missing NEW uses
+atomic no-replace publication. On a mapping failure, stop, report the completed
+count and retain printed undo receipts; do not automatically roll back. The
+profile host, configured paths and timers remain unchanged. Already completed
+restores remain visible. Only after every mapping succeeds may home restoration,
+old-host adoption, path rewrite and schedule reapplication occur. Configuration
+paths use the longest matching original OLD prefix exactly once. Saved paths
+not covered by the plan are listed with explicit `--map` command hints.
+
+Whole-home restoration retains its existing broad overwrite semantics, including
+saved settings/passwords/units. It is not transactional: if that later step
+fails, the home and its configuration may be partial and need inspection.
+No-new-flag machine rebuild retains its previous behavior. Rebuild records later
+runs under the adopted old host; reinitialize for a new host series. Before-move
+versions retain OLD names; later backups use NEW. History is not unified across
+renamed paths.
+
+### Explicit safety receipts after host adoption
+
+Only `restore --at FULL_ID` can resolve an exact 64-hex safety receipt from a
+prior host within the already-selected repository. The cross-host exception
+requires one unambiguous full ID, exactly the `pre-restore` tag, exactly one
+normalized saved path equal to the requested path, and that actual root node.
+It prints the source host but never changes configuration or credentials.
+Ordinary snapshots, partial IDs, latest/date/age selectors, `history` and
+`recover` remain host-scoped. Destination protections and user confirmation are
+unchanged. This narrow exception keeps printed undo commands usable both after
+successful host adoption and after a failed mapping leaves the host unchanged.
+
+Explicit reinitialization after host adoption reads the current machine's host
+name and confirms a changed identity (unless `-y` was explicitly supplied).
+Only a successful repository connection and configuration save adopts that
+identity; failed initialization retains settings/passwords/timers. Ordinary
+history then shows the current host; old-host snapshots remain available to an
+explicit rebuild. Same-host reinitialization needs no new identity prompt.
+
+Mapping sources must not overlap the simultaneously restored old home; use
+`--no-home` for those paths rather than creating two contradictory rewrites.
+The extended rebuild stages package/system reference files in a fresh
+`rebuild/run-*` directory. Old staged `/etc` files cannot supplement a chosen
+backup that contains only package manifests. The printed path identifies the
+new reference files; legacy no-new-flag rebuild remains unchanged.

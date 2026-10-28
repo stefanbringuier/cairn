@@ -97,8 +97,8 @@ machine scope. Init owns scope changes and requires explicit sources when
 switching an existing configuration. Path edits never infer scope. Data-only
 runs skip manifest collection and exclude cairn's manifest directory,
 including stale recipes contained in a source. They retain the normal restic
-job tags and add `data-only`; rebuild rejects data-only configurations and
-filters that tag from both recipe and home selection after reconnecting.
+job tags and add `data-only`; mapped rebuild supports them without home or
+package restoration. Machine scope still excludes that tag from its sources.
 Rebuild stages explicitly recorded manifests from its chosen machine backup
 in a fresh scratch directory, even for sources under the old home. Package and
 crontab steps read only that directory; export failure aborts those steps, and
@@ -197,3 +197,37 @@ The docs site renders the repository's Markdown and images with a small static
 builder. CI validates local links and builds the site. Pages deployment is
 disabled while private and additionally requires `PAGES_ENABLED=true`. See
 [publishing.md](publishing.md) for the maintainer's activation steps.
+
+## Mapped rebuild execution
+
+`rebuild_plan.go` owns side-effect-free mapping syntax, destination preflight,
+source selection and longest-prefix configuration rewriting. Read-only restic
+queries pin actual source nodes before confirmation. `rebuild_mapped.go` performs
+exact-destination copies through `saveBeforeRestore`/`restoreSaved`, never
+`cmdRestore`'s directory-container interpretation. The extracted
+`validateRestoreDestination` is shared with existing restore and repeats at
+execution. Mappings precede broad home restoration; do not mistake deferred
+`Config.save` alone for protection against a home overwrite.
+
+Safety snapshots retain the original configured host. `restore_receipt.go`
+provides the narrowly documented full-ID safety-receipt lookup after adoption;
+it does not widen the shared resolver used by recover/history. The source host
+never changes repository/password selection. Legacy rebuild stays on its old
+path when no new flags are supplied. Package staging is shared without selecting
+live manifests. Tests use disposable encrypted restic repositories, private
+HOME/XDG roots and inert systemctl/package fixtures; no real account acceptance
+is implied.
+
+Explicit reinitialization after host adoption reads the current machine's host
+name and confirms a changed identity (unless `-y` was explicitly supplied).
+Only a successful repository connection and configuration save adopts that
+identity; failed initialization retains settings/passwords/timers. Ordinary
+history then shows the current host; old-host snapshots remain available to an
+explicit rebuild. Same-host reinitialization needs no new identity prompt.
+
+Mapping sources must not overlap the simultaneously restored old home; use
+`--no-home` for those paths rather than creating two contradictory rewrites.
+The extended rebuild stages package/system reference files in a fresh
+`rebuild/run-*` directory. Old staged `/etc` files cannot supplement a chosen
+backup that contains only package manifests. The printed path identifies the
+new reference files; legacy no-new-flag rebuild remains unchanged.

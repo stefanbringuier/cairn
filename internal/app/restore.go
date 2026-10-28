@@ -210,39 +210,50 @@ func undoCommand(path, id string) string {
 	return profileCommand() + " restore --at " + id + " -y -- '" + strings.ReplaceAll(path, "'", "'\\''") + "'"
 }
 
-// saveBeforeRestore must protect all current content, even normally excluded files.
-func saveBeforeRestore(r Restic, c Config, path string) (string, error) {
+// validateRestoreDestination is read-only, so a multi-path restore can check every
+// destination before the first safety snapshot or filesystem write. Execution
+// still repeats this check immediately before creating each safety snapshot.
+func validateRestoreDestination(c Config, path string) (bool, error) {
 	info, err := os.Lstat(path)
 	missing := os.IsNotExist(err)
 	if err != nil && !missing {
-		return "", err
+		return false, err
 	}
 	if !missing && info.Mode()&os.ModeSymlink != 0 {
-		return "", fmt.Errorf("refusing to replace a symbolic link: use %s recover with a new destination", profileCommand())
+		return false, fmt.Errorf("refusing to replace a symbolic link: use %s recover with a new destination", profileCommand())
 	}
 	root, err := canonicalPath(path)
 	if err != nil {
-		return "", err
+		return false, err
 	}
 	profiles, err := configuredProfiles()
 	if err != nil {
-		return "", err
+		return false, err
 	}
 	for _, control := range profileControls(profiles) {
 		resolved, err := canonicalControl(control)
 		if err != nil {
-			return "", fmt.Errorf("cannot resolve cairn configuration/password, nothing restored: %w", err)
+			return false, fmt.Errorf("cannot resolve cairn configuration/password, nothing restored: %w", err)
 		}
 		control = resolved
 		if withinPath(control, root) || withinPath(root, control) {
-			return "", fmt.Errorf("destination overlaps cairn configuration or passwords; use %s recover to keep undo access available", profileCommand())
+			return false, fmt.Errorf("destination overlaps cairn configuration or passwords; use %s recover to keep undo access available", profileCommand())
 		}
 	}
 	for _, configuredRepo := range localRepositories(c, profiles) {
 		repo, repoErr := canonicalPath(configuredRepo)
 		if repoErr == nil && (withinPath(root, repo) || withinPath(repo, root)) {
-			return "", fmt.Errorf("restore destination overlaps the backup repository; use %s recover with a new destination", profileCommand())
+			return false, fmt.Errorf("restore destination overlaps the backup repository; use %s recover with a new destination", profileCommand())
 		}
+	}
+	return missing, nil
+}
+
+// saveBeforeRestore must protect all current content, even normally excluded files.
+func saveBeforeRestore(r Restic, c Config, path string) (string, error) {
+	missing, err := validateRestoreDestination(c, path)
+	if err != nil {
+		return "", err
 	}
 	if missing {
 		return "", nil
@@ -314,7 +325,7 @@ func cmdRestore(c Config, p, at, to string, yes bool) error {
 	if err != nil {
 		return err
 	}
-	s, n, err := resolve(r, c, p, at)
+	s, n, err := resolveRestore(r, c, p, at)
 	if err != nil {
 		return err
 	}

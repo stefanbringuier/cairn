@@ -65,6 +65,7 @@ docs-serve: docs
 integration: build
 	python3 scripts/integration.py bin/cairn
 	python3 scripts/profiles-integration.py bin/cairn
+	python3 scripts/rebuild-integration.py bin/cairn
 
 cross-check:
 	mkdir -p .cache/cross

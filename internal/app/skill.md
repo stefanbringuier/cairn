@@ -17,9 +17,9 @@ to `$HOME`. No system paths are added, no package/crontab manifests are generate
 and cairn's existing manifest directory is excluded from both jobs even beneath
 a source. Normal cache exclusions, retention, schedules, and restore safety
 apply. Data-only backups carry both `backup` and `data-only` tags; snapshots
-keep the `snapshot` tag. `rebuild` refuses a data-only configuration before
-repository access and ignores tagged data-only backups in machine scope. Use
-`history`, `recover`, or approved `restore` for data-only saved files.
+keep the `snapshot` tag. `rebuild --map OLD=NEW` supports data-only profiles
+with home/package steps skipped. Machine scope still ignores tagged data-only
+backups. Use `history`, `recover`, or approved `restore` for ordinary recovery.
 
 Without `--data-only`, a new setup uses machine scope. `--path` alone replaces
 snapshot paths and sets backup paths to those sources plus `/etc` and
@@ -62,7 +62,7 @@ package installation starts.
 | `cairn history <path> [--json]` | Versions of a path: `[{snapshot, kind, time, size, mtime}]`, newest first (size/mtime only for files; `[]` if none) |
 | `cairn diff <from> [<to>] [--path P] [--metadata] [--json]` | Compare saved snapshots; `to` defaults to latest. Selectors accept the same forms as `--at`. Does not compare live files. Refuses incomplete comparisons |
 | `cairn recover <path> [--at A] [--to T] [--json]` | Recover a regular file or folder into a new copy. Default: private temporary directory. `--to` is the exact new name, never an existing container. Existing destinations are refused; failed exports are not published |
-| `cairn rebuild [--host H] [--from OLDHOME] [-y]` | On a new machine after `cairn init <same target>`: restores the old home into `$HOME`, stages the old `/etc` in `~/.local/state/cairn/rebuild/etc`, then reinstalls packages step by step (asks before each) |
+| `cairn rebuild [--host H] [--from OLDHOME | --no-home] [--map OLD=NEW]... [--no-packages] [--at A] [-y]` | On a new machine after `cairn init <same target>`: restores the old home into `$HOME`, stages the old `/etc` in `~/.local/state/cairn/rebuild/etc`, then reinstalls packages step by step (asks before each) |
 | `cairn set [<key> <value>] [--json]` | Change a setting, or show all settings with no args |
 | `cairn --skill` | This document |
 | `cairn --version` | Print the version |
@@ -287,7 +287,7 @@ Scheduled (timer) runs against an offline target exit 0 and log "offline, skippe
   `cairn status --json`. Check `online`, `snapshot.last`, `snapshot.stale`, `backup.result`.
 - **New or wiped machine:** install the OS, mount the same target, then:
   1. `cairn init <same target>`
-  2. `cairn rebuild` (a human approves the sudo steps)
+  2. Review `cairn rebuild --host OLD --map /old/data=/new/data` for the home plus relocated data, or add `--no-home --no-packages` for mapped data only. OLD/NEW are exact absolute paths. A human approves the actual restore and any sudo steps; `-y` grants no authority.
   3. `cairn restore <extra path> --at <id>` for any non-home paths it lists.
 - **Logs of scheduled runs:** `journalctl --user -u cairn-snapshot -u cairn-backup -n 50`.
 
@@ -299,3 +299,37 @@ RESTIC_REPOSITORY=<repo> restic --insecure-no-password snapshots
 recovery_dir=$(mktemp -d /tmp/cairn-rescue.XXXXXX)
 RESTIC_REPOSITORY=<repo> restic --insecure-no-password restore latest --host <host> --tag backup --target "$recovery_dir"
 ```
+
+## Rebuild mapping and undo receipts
+
+`--map` NEW is the exact destination, not a directory container. All mappings
+and source nodes are checked before confirmation; no-TTY without `-y` refuses
+before acquiring tools. Data-only implies no-home/no-packages. `--at` selects
+mapped versions from the old host before init's cutoff, never safety snapshots.
+Mappings run before the broad home restore. Failure stops, leaves settings and
+host unchanged and prints completed count/undo; completed files are not rolled
+back. After all maps succeed, adopt the old host, rewrite paths by their longest
+original OLD prefix once and re-apply schedules. Before-move history stays at
+OLD, later versions use NEW. Whole-home failure may still leave partially
+restored settings and requires inspection; no transactional-home claim.
+
+Printed undo commands use exact full safety IDs. Only `restore --at FULL_ID`
+can find a cross-host safety receipt within the selected repository: exactly
+one `pre-restore` tag, one matching normalized saved path and its actual node.
+No partial ID, ordinary snapshot, latest/date/age or history/recover exception.
+No implicit host/credential change. This is recovery of explicitly approved
+work, not permission to replace today's files automatically.
+
+Explicit reinitialization after host adoption reads the current machine's host
+name and confirms a changed identity (unless `-y` was explicitly supplied).
+Only a successful repository connection and configuration save adopts that
+identity; failed initialization retains settings/passwords/timers. Ordinary
+history then shows the current host; old-host snapshots remain available to an
+explicit rebuild. Same-host reinitialization needs no new identity prompt.
+
+Mapping sources must not overlap the simultaneously restored old home; use
+`--no-home` for those paths rather than creating two contradictory rewrites.
+The extended rebuild stages package/system reference files in a fresh
+`rebuild/run-*` directory. Old staged `/etc` files cannot supplement a chosen
+backup that contains only package manifests. The printed path identifies the
+new reference files; legacy no-new-flag rebuild remains unchanged.

@@ -86,6 +86,8 @@ All profile config/passwords (including external symlink targets) and local
 repository overlaps are refused to keep undo access. Use recover for copies.
 For inspection or agent work, use cairn recover to export a new copy.
 In-place restores save the current version first and print an undo command.
+A full 64-hex pre-restore receipt for the exact path can be restored across
+hosts in this selected repository; ordinary/short/time selectors stay scoped.
 Newer files outside the snapshot are kept. Without a terminal, a confirmation
 that cannot be shown exits 2; pass -y to proceed.
 `
@@ -104,7 +106,7 @@ the first snapshot. Run cairn targets for NAS and cloud setup instructions.
   --password  Protect backups with a password; save it off this machine.
   --path      Use this source instead of your home; repeat to add more.
   --data-only Save configured sources without system folders or rebuild lists.
-  -y          Accept same-disk and existing-profile repository changes.
+  -y          Accept same-disk, repository and host-identity changes.
 
 New setups default to machine scope: backups add /etc, /usr/share/keyrings,
 and package manifests, even with --path. Data-only scope uses just the paths
@@ -119,6 +121,9 @@ Without systemd user timers, run snapshots and backups manually.
 Use cairn --profile NAME init <target> to add another destination. Reinitializing
 one profile keeps its settings and password. Changing its repository asks first;
 old snapshots stay in the old repository. Use a separate repository per profile.
+Reinitializing also adopts this machine's current hostname after confirmation
+when it differs. Future history and runs use that host; old-host snapshots stay
+saved and can be selected explicitly with rebuild --host.
 `
 	case "profiles":
 		return `cairn profiles [--json]
@@ -221,7 +226,23 @@ daily, weekly, off. Lists: +value adds, -value removes, a,b replaces.
 backup.scope is shown for clarity; change scope with init, not set.
 `
 	case "rebuild":
-		return "cairn rebuild [--host <old-host>] [--from <old-home>] [-y]\n\nRecover your old home on a new Linux machine, stage old system settings for\nreference, and walk through reinstalling packages. Each install step asks\nfirst and may need sudo. -y accepts those steps without asking.\nData-only configurations are refused; use history, recover, or restore.\nBackups tagged data-only are never selected as a machine rebuild recipe.\n\n--profile selects the source repository and recipe, but rebuild restores the\nentire home, including saved config and unit files for other profiles. Inspect\ncairn profiles and every profile's settings and schedules afterward.\n"
+		return `cairn rebuild [--host H] [--from OLDHOME | --no-home] [--map OLD=NEW]... [--no-packages] [--at A] [-y]
+
+Recover a home and/or exact saved data paths on a new Linux machine.
+  --map OLD=NEW  Repeatable absolute saved path and exact destination name.
+  --no-home      Skip the whole-home overwrite; requires at least one map.
+  --no-packages  Skip /etc staging and all package steps.
+  --at A         Saved version for mapped paths: latest, ID, date or age.
+Data-only profiles imply --no-home and --no-packages. Sources must predate
+this profile's initialization. The plan is confirmed once; package steps
+retain their own prompts. -y skips prompts, never grants restore authority.
+Existing mapped destinations get complete safety copies and printed undo.
+A mapping failure leaves configuration unchanged; completed restores remain.
+Success adopts the old host, rewrites job paths and re-applies schedules.
+Old versions retain OLD paths; future versions use NEW. Review leftover map
+hints and all schedules. A whole-home restore also overwrites other profiles'
+saved settings/units and may be partial on failure; inspect before retrying.
+`
 	default:
 		return usage
 	}
