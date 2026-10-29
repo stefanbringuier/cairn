@@ -189,7 +189,15 @@ func cmdRebuild(c Config, host, from string, yes bool) error {
 		warn(err.Error())
 	}
 	ok("home restored")
-	stage := filepath.Join(stateDir(), "rebuild")
+	return rebuildPackages(r, b, from, yes)
+}
+
+func rebuildPackages(r Restic, b Snap, from string, yes bool) error {
+	return rebuildPackagesAt(r, b, from, yes, filepath.Join(stateDir(), "rebuild"))
+}
+
+func rebuildPackagesAt(r Restic, b Snap, from string, yes bool, stage string) error {
+	var err error
 	recipe := ""
 	for _, p := range b.Paths {
 		switch {

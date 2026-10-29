@@ -201,7 +201,8 @@ Data-only runs skip system-folder additions and installed-package lists;
 old cairn manifests are excluded even when stored inside a source. Normal
 cache exclusions, schedules, retention, and safe file recovery still apply.
 The dashboard says **DATA BACKUPS**, and settings show `backup.scope`.
-`cairn rebuild` refuses this mode; use `history`, `recover`, or `restore`.
+`cairn rebuild --map OLD=NEW` restores this mode without home or package steps;
+use `history`, `recover`, or `restore` for ordinary same-host recovery.
 
 ![Data-only dashboard with disposable files and scheduler fixture metadata](images/data-only-dashboard.png)
 
@@ -246,6 +247,38 @@ These steps are the only place cairn uses sudo, and you approve each one. Anythi
 Package lists always come from the selected machine backup, even when a newer
 home snapshot omitted them. A failed package-list export stops installation;
 current lists do not supplement the selected recipe.
+
+
+### Renamed machine or relocated data disk
+
+After connecting the selected profile to its existing repository, review an
+explicit mapping (replace both example paths with your actual saved/new paths):
+
+```sh
+cairn --profile phin rebuild --host tars --no-home --map /data/PHIN=/my/new/disk/PHIN
+# Data-only profiles skip home and packages automatically:
+cairn --profile personal rebuild --host tars --map /data/PERSONAL=/srv/PERSONAL
+# Full machine home plus external data, without package installation:
+cairn --profile nas rebuild --host tars --map /data/PERSONAL=/mnt/fast/PERSONAL --no-packages
+```
+
+`NEW` is the exact name, even when it is an existing directory. Repeat `--map`
+for several paths; `--at` chooses their saved versions. The plan shows every
+source/version/destination before a single confirmation. Existing mapped files
+are saved first, and undo commands remain valid after host adoption. Cancellation
+changes no destinations, repository, settings or timers (planning can install
+missing tools/read caches). A failed mapping stops later steps and leaves
+settings/host unchanged; earlier restores stay and can be undone. Do not remove
+the receipts. A full-home restore is broader and nontransactional, so inspect
+all restored profile settings if it fails.
+
+Successful completion adopts the old host for continued history, rewrites
+configured job paths and re-applies schedules. Review leftover `--map` hints
+before running them. Old versions remain under OLD; new versions accrue under
+NEW, with no automatic unified history. Exact full-ID `pre-restore` receipts
+alone can be restored across hosts within the same selected repository;
+ordinary snapshots, short IDs and history retain their host scope. `-y` only
+skips prompts—it is not authority for an agent to overwrite your files.
 
 ## Targets
 
