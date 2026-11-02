@@ -175,6 +175,8 @@ Container smoke checks prove binary startup, not systemd or a complete recovery.
 
 CI checks formatting, lint, race tests, dependency downloads, documentation
 coverage, static cross-builds, and startup on several Linux distributions.
+Test, lint, and release builds install the Go patch version named in `go.mod`,
+which is the standard library the weekly govulncheck run scans.
 Changes enter `main` through PRs with required, current CI checks. The release
 workflow then waits for successful main-branch CI, including the docs build,
 before creating a version tag and publishing checked archives. Every new
