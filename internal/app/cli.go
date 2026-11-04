@@ -254,10 +254,25 @@ func Run(args []string, version string) int {
 	case "rebuild":
 		host := fs.String("host", "", "rebuild from this machine's backups")
 		from := fs.String("from", "", "the old home path inside the backup")
-		parse(fs, args)
+		noHome := fs.Bool("no-home", false, "skip the home restore")
+		noPackages := fs.Bool("no-packages", false, "skip /etc staging and package steps")
+		at := fs.String("at", "latest", "source version for mapped paths")
+		var mappings []string
+		fs.Func("map", "restore absolute OLD=NEW (repeatable; NEW is the exact destination)", func(value string) error { mappings = append(mappings, value); return nil })
+		pos := parse(fs, args)
+		extended := false
+		fs.Visit(func(f *flag.Flag) {
+			extended = extended || f.Name == "map" || f.Name == "no-home" || f.Name == "no-packages" || f.Name == "at"
+		})
 		var c Config
-		if c, err = loadConfig(); err == nil {
-			err = cmdRebuild(c, *host, *from, *yes)
+		if len(pos) != 0 {
+			err = &cliError{exitNeedsYes, "rebuild does not accept positional arguments"}
+		} else if c, err = loadConfig(); err == nil {
+			if extended || c.backupScope() == scopeDataOnly {
+				err = cmdRebuildMapped(c, rebuildOptions{Host: *host, From: *from, At: *at, Maps: mappings, NoHome: *noHome, NoPackages: *noPackages, Yes: *yes})
+			} else {
+				err = cmdRebuild(c, *host, *from, *yes)
+			}
 		}
 	case "set": // no flag parsing: "-PATH" removes from a list
 		pos := slices.DeleteFunc(slices.Clone(args), func(a string) bool { return a == "--json" || a == "-json" })
@@ -313,6 +328,20 @@ func cmdInit(target string, password bool, paths []string, yes bool, dataOnly *b
 		}
 		c = defaultConfig()
 	}
+	currentHost, err := os.Hostname()
+	if err != nil || currentHost == "" {
+		return fmt.Errorf("cannot determine the current machine's host name")
+	}
+	if existing && c.Host != currentHost {
+		message := "Reinitialize host " + clean(c.Host) + " as " + clean(currentHost) + "?"
+		if !yes {
+			if err := confirm(message, "Future backups and ordinary history use the current host. Old-host versions remain in this repository; a rebuild with --host can select them again. Saved paths, settings and password are retained.", "Reinitialize"); err != nil {
+				return err
+			}
+		}
+		note(message + " Old-host versions remain saved; default history will use the current host.")
+	}
+	c.Host = currentHost // in memory only until repository checks and atomic save succeed
 	if err := c.initScope(dataOnly, paths, existing); err != nil {
 		return &cliError{exitNeedsYes, err.Error()}
 	}

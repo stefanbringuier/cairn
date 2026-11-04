@@ -91,3 +91,20 @@ shell or untrusted binary/configuration. Read-only repository operations use
 These are deployment choices, not permissions installed by cairn. See
 [Security](../SECURITY.md) for the product's other protections and
 [usage](usage.md#for-ai-agents) for command examples.
+
+## Mapped new-machine rebuild
+
+For an explicitly approved rebuild, `--map OLD=NEW` uses exact absolute
+paths and the same complete safety snapshots/protected destinations as restore.
+A data-only profile skips home/package steps. Review every source version,
+destination and overwrite before confirming; use only disposable fixtures when
+testing. `-y` grants no new authority. Mapping failure leaves configuration/host
+unchanged but does not roll back earlier successful restores. Whole-home
+restoration remains a separate broad overwrite with partial-failure risks.
+
+A printed undo receipt may name a safety snapshot made under the previous
+configured host. `restore --at` accepts that exact full 64-hex ID only for a
+single-path, solely `pre-restore` snapshot in the selected repository. The exact
+saved path must match. This does not change credentials, host configuration,
+ordinary snapshot selection or confirmation requirements; it is not general
+cross-host browsing or permission isolation.
