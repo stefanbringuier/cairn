@@ -116,8 +116,12 @@ only in an opened profile. Cancel or finish a restore flow before switching.
 Jobs already started keep their original profile and continue; switching writes
 no timers, passwords, or config and clears profile-specific screen state. No late
 response from an earlier selection may change a newly opened profile, even if
-the user has since returned to the same profile name. **t** remains destination
-setup and **?** shows these keys.
+the user has since returned to the same profile name. Leaving a pending
+history or directory read clears its loading indicator. An older read cannot
+replace the current screen or clear a newer operation's loading indicator.
+Late filter matches and settings events also cannot change a profile or screen
+that did not request them. **t** remains destination setup and **?** shows
+these keys.
 
 Explicit `--profile` (including `--profile default`), non-TTY invocations,
 `status`, `dashboard --json`, and all other commands never use the chooser.
@@ -325,8 +329,9 @@ or `cairn-NAME-{snapshot,backup}.{service,timer}` for named profiles:
 
 ## Supported builds
 
-The module pins Go 1.27.3 or newer so builds include the `crypto/x509`
-certificate-verification fix for [GO-2026-6809](https://pkg.go.dev/vuln/GO-2026-6809).
+The module pins Go 1.27.4 or newer to include the standard-library fixes for
+[GO-2026-6859](https://pkg.go.dev/vuln/GO-2026-6859) in `net/http` and
+[GO-2026-6809](https://pkg.go.dev/vuln/GO-2026-6809) in `crypto/x509`.
 CI and release builds read the compiler version from `go.mod`; do not bypass
 the vulnerability check when updating that pin.
 

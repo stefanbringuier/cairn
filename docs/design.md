@@ -52,9 +52,14 @@ never run restic or bootstrap tools. The dashboard validates the local
 configuration before switching; repository availability is reported afterwards.
 The Bubble Tea model resets per-profile state on a successful switch. Profile
 operations capture the loaded configuration, and profile-specific asynchronous
-results carry a generation rather than just a profile name. A separate preview
-request key discards canceled previews. The live TUI never changes the CLI's
-selection or signals already started jobs.
+results carry a generation rather than just a profile name. Snapshot and
+directory reads also carry a request identity within that generation. Only
+the current request can complete its loading state. Leaving the screen or
+starting a restore preview detaches that read without canceling restic. List
+filter results also carry the list and query identity, and form commands stay
+with the settings form that issued them, including batched and sequenced work.
+A separate preview request key discards canceled previews. The live TUI
+never changes the CLI's selection or signals already started jobs.
 Each profile also selects machine or data-only scope. Data-only exclusions cover
 all default/named manifests and orphaned state, preventing recipes from another
 profile leaking into a HOME source. Rclone accounts and definitions remain in

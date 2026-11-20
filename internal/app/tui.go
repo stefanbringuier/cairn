@@ -47,15 +47,15 @@ type (
 	}
 	tickMsg  time.Time
 	snapsMsg struct {
-		gen   int
-		snaps []Snap
-		err   error
+		gen, request int
+		snaps        []Snap
+		err          error
 	}
 	lsMsg struct {
-		gen         int
-		snapID, dir string
-		nodes       []Node
-		err         error
+		gen, request int
+		snapID, dir  string
+		nodes        []Node
+		err          error
 	}
 	previewMsg struct {
 		gen, request int
@@ -97,6 +97,9 @@ type model struct {
 	wasRunning                     bool
 	gen                            int // incremented on switch and settings save
 	profileRequest, previewRequest int
+	browseSequence, browseRequest  int // one owner for the snapshot/directory spinner
+	listInstance, filterRevision   int
+	settingsInstance               int
 	profiles                       profilesView
 	restorePending, restoring      bool
 }
@@ -158,19 +161,43 @@ func (m model) Init() tea.Cmd {
 	return tea.Batch(func() tea.Msg { return statusMsg{dashboardStatus(c), gen, true} }, tick(), m.spin.Tick)
 }
 
-func (m model) loadSnaps() tea.Cmd {
-	c, gen := m.c, m.gen
+func (m *model) beginBrowseRead(label string) int {
+	m.browseSequence++
+	m.browseRequest, m.busy = m.browseSequence, label
+	return m.browseRequest
+}
+
+// Cancel the UI request, not the underlying repository command. Its result
+// cannot change the screen, add cached nodes, or clear another operation.
+func (m *model) cancelBrowseRead() {
+	if m.browseRequest != 0 {
+		m.browseRequest, m.busy = 0, ""
+	}
+}
+
+func (m *model) finishBrowseRead(gen, request int) bool {
+	if gen != m.gen || request == 0 || request != m.browseRequest {
+		return false
+	}
+	m.cancelBrowseRead()
+	return true
+}
+
+func (m *model) loadSnaps() tea.Cmd {
+	c, gen, request := m.c, m.gen, m.beginBrowseRead("loading snapshots")
 	return func() tea.Msg {
 		r, err := newRestic(c)
 		if err != nil {
-			return snapsMsg{gen: gen, err: err}
+			return snapsMsg{gen: gen, request: request, err: err}
 		}
 		s, err := r.snapshots(c.Host)
-		return snapsMsg{gen, s, err}
+		return snapsMsg{gen, request, s, err}
 	}
 }
 
 func (m *model) setList(title string, items []list.Item) {
+	m.listInstance++
+	m.filterRevision = 0
 	m.list.SetDelegate(uiDelegate(m.scr != storageList))
 	m.list.Title = title
 	m.list.ResetFilter()
@@ -182,17 +209,17 @@ func (m *model) setList(title string, items []list.Item) {
 func (m model) open(dir string) (model, tea.Cmd) {
 	m.dir = dir
 	if nodes, ok := m.cache[m.snap.ID+dir]; ok {
+		m.cancelBrowseRead()
 		return m.showDir(nodes), nil
 	}
-	m.busy = "reading " + tildify(dir)
-	c, id, gen := m.c, m.snap.ID, m.gen
+	c, id, gen, request := m.c, m.snap.ID, m.gen, m.beginBrowseRead("reading "+tildify(dir))
 	return m, func() tea.Msg {
 		r, err := newRestic(c)
 		if err != nil {
-			return lsMsg{gen: gen, snapID: id, dir: dir, err: err}
+			return lsMsg{gen: gen, request: request, snapID: id, dir: dir, err: err}
 		}
 		n, err := r.ls(id, dir)
-		return lsMsg{gen, id, dir, n, err}
+		return lsMsg{gen, request, id, dir, n, err}
 	}
 }
 
@@ -215,6 +242,7 @@ func (m model) showDir(nodes []Node) model {
 
 // showRoots lists a multi-path snapshot's source paths.
 func (m model) showRoots() model {
+	m.cancelBrowseRead()
 	var items []list.Item
 	for _, p := range m.snap.Paths {
 		items = append(items, item{title: tildify(p), desc: "source path", node: Node{Path: p, Type: "dir", Name: filepath.Base(p)}})
@@ -226,6 +254,21 @@ func (m model) showRoots() model {
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case componentResult:
+		switch msg.scope.kind {
+		case listComponent:
+			if m.hasListScreen() && msg.scope == m.listScope() && m.list.FilterState() != list.Unfiltered {
+				cmd := m.updateList(msg.message)
+				return m, cmd
+			}
+		case settingsComponent:
+			if m.scr == settings && m.form != nil && msg.scope == m.settingsScope() {
+				return m.updateSettings(msg.message)
+			}
+		}
+		return m, nil
+	case list.FilterMatchesMsg:
+		return m, nil // this model only accepts results with an owner
 	case tea.WindowSizeMsg:
 		m.w, m.h = msg.Width, msg.Height
 		m.resizeList()
@@ -277,11 +320,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.spin, cmd = m.spin.Update(msg)
 		return m, cmd
 	case snapsMsg:
-		if msg.gen != m.gen || m.busy != "loading snapshots" ||
-			(m.scr != dash && m.scr != dirList && m.scr != snapList) {
+		if !m.finishBrowseRead(msg.gen, msg.request) || (m.scr != dash && m.scr != dirList && m.scr != snapList) {
 			return m, nil
 		}
-		m.busy = ""
 		if msg.err != nil {
 			m.flash, m.scr = bad.Render("✗ "+tuiError(msg.err)), dash
 			return m, nil
@@ -296,11 +337,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.scr = snapList
 		m.setList("Saved versions", items)
 	case lsMsg:
-		if msg.gen != m.gen || msg.snapID != m.snap.ID || msg.dir != m.dir ||
+		if !m.finishBrowseRead(msg.gen, msg.request) || msg.snapID != m.snap.ID || msg.dir != m.dir ||
 			(m.scr != snapList && m.scr != dirList) {
 			return m, nil
 		}
-		m.busy = ""
 		if msg.err != nil {
 			m.flash = bad.Render("✗ " + tuiError(msg.err))
 			return m, nil
@@ -348,6 +388,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if msg.String() == "?" && m.scr != settings && m.scr != helpScreen && m.scr != confirmRestore &&
 			!m.profiles.filtering && m.list.FilterState() != list.Filtering {
+			m.cancelBrowseRead()
 			return m.showGuide(helpScreen), nil
 		}
 		switch m.scr {
@@ -432,29 +473,38 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 	if m.scr == settings && m.form != nil {
-		f, cmd := m.form.Update(msg)
-		m.form = f.(*huh.Form)
-		switch m.form.State {
-		case huh.StateCompleted:
-			m.scr, m.flash = dash, m.saveSettings()
-			cmd := m.loadStatus()
-			return m, cmd
-		case huh.StateAborted:
-			m.scr = dash
+		// Raw terminal events are shared. Form-generated messages arrive above
+		// with the identity of the form that issued them.
+		switch msg.(type) {
+		case tea.KeyPressMsg, tea.PasteMsg, tea.WindowSizeMsg, tea.BackgroundColorMsg:
+			return m.updateSettings(msg)
 		}
-		return m, cmd
+		return m, nil
 	}
 	if m.scr == helpScreen || m.scr == storageDetails {
 		var cmd tea.Cmd
 		m.guide, cmd = m.guide.Update(msg)
 		return m, cmd
 	}
-	if m.scr == snapList || m.scr == dirList || m.scr == storageList {
-		var cmd tea.Cmd
-		m.list, cmd = m.list.Update(msg)
+	if m.hasListScreen() {
+		cmd := m.updateList(msg)
 		return m, cmd
 	}
 	return m, nil
+}
+
+func (m model) updateSettings(msg tea.Msg) (tea.Model, tea.Cmd) {
+	f, cmd := m.form.Update(msg)
+	m.form = f.(*huh.Form)
+	switch m.form.State {
+	case huh.StateCompleted:
+		m.scr, m.flash = dash, m.saveSettings()
+		cmd := m.loadStatus()
+		return m, cmd
+	case huh.StateAborted:
+		m.scr = dash
+	}
+	return m, scopedComponentCmd(cmd, m.settingsScope())
 }
 
 func (m model) dashKey(k string) (tea.Model, tea.Cmd) {
@@ -470,19 +520,23 @@ func (m model) dashKey(k string) (tea.Model, tea.Cmd) {
 		}
 		return m, m.liveStatus()
 	case "r":
-		m.busy, m.flash = "loading snapshots", ""
-		return m, m.loadSnaps()
+		m.flash = ""
+		cmd := m.loadSnaps()
+		return m, cmd
 	case "p":
 		if m.restorePending || m.restoring {
 			return m, nil
 		}
-		m.scr, m.flash, m.busy = profilesScreen, "", ""
+		m.cancelBrowseRead()
+		m.scr, m.flash = profilesScreen, ""
 		m.profiles = newProfilesView()
 		cmd := m.refreshProfiles()
 		return m, cmd
 	case "t":
+		m.cancelBrowseRead()
 		return m.showTargets(), nil
 	case "e":
+		m.cancelBrowseRead()
 		m.flash = ""
 		m.fv = &settingsValues{m.c.Snapshot.Every, m.c.Snapshot.Keep, m.c.Backup.Every, m.c.Backup.Keep}
 		keepOK := func(s string) error { _, err := keepFlags(s); return err }
@@ -494,7 +548,8 @@ func (m model) dashKey(k string) (tea.Model, tea.Cmd) {
 		)).WithTheme(huh.ThemeFunc(settingsTheme)).WithShowHelp(false).
 			WithWidth(max(uiWidth(m.w)-6, 1)).WithHeight(m.settingsHeight())
 		m.scr = settings
-		return m, m.form.Init()
+		m.settingsInstance++
+		return m, scopedComponentCmd(m.form.Init(), m.settingsScope())
 	}
 	return m, nil
 }
@@ -507,6 +562,7 @@ func (m model) browseKey(k string) (tea.Model, tea.Cmd, bool) {
 		if m.list.IsFiltered() {
 			return m, nil, false
 		}
+		m.cancelBrowseRead()
 		m.scr = dash
 		return m, nil, true
 	case "enter", "right", "l":
@@ -524,6 +580,7 @@ func (m model) browseKey(k string) (tea.Model, tea.Cmd, bool) {
 		}
 	case "backspace", "left", "h":
 		if m.scr != dirList {
+			m.cancelBrowseRead()
 			m.scr = dash
 			return m, nil, true
 		}
@@ -531,13 +588,14 @@ func (m model) browseKey(k string) (tea.Model, tea.Cmd, bool) {
 		case m.dir != "" && slices.Contains(m.snap.Paths, m.dir) && len(m.snap.Paths) > 1:
 			return m.showRoots(), nil, true
 		case m.dir == "" || slices.Contains(m.snap.Paths, m.dir):
-			m.busy = "loading snapshots"
-			return m, m.loadSnaps(), true
+			cmd := m.loadSnaps()
+			return m, cmd, true
 		}
 		next, cmd := m.open(filepath.Dir(m.dir))
 		return next, cmd, true
 	case "r", "space", " ":
 		if m.scr == dirList && sel.node.Path != "" {
+			m.cancelBrowseRead()
 			m.busy, m.restorePending, m.undo = "checking what would change", true, ""
 			m.resizeList()
 			m.previewRequest++
