@@ -97,6 +97,28 @@ or timers. Invalid/unreadable default config and dangling config symlinks do
 not fall back. Invalid named inventory aborts without silently omitting profiles.
 The chosen config is revalidated before opening its dashboard.
 
+From a dashboard, **p** opens the read-only Profiles overview. It lists the
+configured profiles in name order, including default when present, shows the
+current profile, and displays each profile's redacted destination, scope,
+configured snapshot and backup frequencies, and separate enabled, disabled, or
+unknown timer states. It reads local configuration and makes bounded,
+read-only user-manager queries, not repository requests. A failed manager
+probe leaves timer states unknown. The overview refreshes while open; **r**
+also refreshes it. A removed or invalid current profile is reported without
+replacing its configuration or changing the current dashboard.
+Use arrows or **j/k** to move, **/** to filter the name or displayed destination,
+and Enter to open a highlighted profile (first apply the filter if editing).
+Escape clears the filter, or returns to the prior dashboard when clear. The
+selected configuration is read and checked again before switching; failure
+leaves the previous profile usable. Switching changes only this session.
+Snapshot/backup actions, browsing, settings, preview, and restore are available
+only in an opened profile. Cancel or finish a restore flow before switching.
+Jobs already started keep their original profile and continue; switching writes
+no timers, passwords, or config and clears profile-specific screen state. No late
+response from an earlier selection may change a newly opened profile, even if
+the user has since returned to the same profile name. **t** remains destination
+setup and **?** shows these keys.
+
 Explicit `--profile` (including `--profile default`), non-TTY invocations,
 `status`, `dashboard --json`, and all other commands never use the chooser.
 Missing-config errors explain listing/selecting existing profiles as well as

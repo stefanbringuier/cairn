@@ -195,19 +195,21 @@ func restoreInPlace(r Restic, c Config, s Snap, n Node, p string) (string, error
 	}
 	err = restoreSaved(r, s, n, p, p, undo)
 	if err != nil && undo != "" {
-		err = fmt.Errorf("%w; undo: %s", err, undoCommand(p, undo))
+		err = fmt.Errorf("%w; undo: %s", err, c.operationProfile().undoCommand(p, undo))
 	}
 	return undo, err
 }
 
-func undoCommand(path, id string) string {
+func undoCommand(path, id string) string { return cliProfile().undoCommand(path, id) }
+
+func (p profileContext) undoCommand(path, id string) string {
 	if clean(path) != path {
-		if selectedProfile != "default" {
-			return "profile " + selectedProfile + ": snapshot " + id + " (restore using the original path)"
+		if p != "default" {
+			return "profile " + p.name() + ": snapshot " + id + " (restore using the original path)"
 		}
 		return "snapshot " + id + " (restore using the original path)"
 	}
-	return profileCommand() + " restore --at " + id + " -y -- '" + strings.ReplaceAll(path, "'", "'\\''") + "'"
+	return p.command() + " restore --at " + id + " -y -- '" + strings.ReplaceAll(path, "'", "'\\''") + "'"
 }
 
 // validateRestoreDestination is read-only, so a multi-path restore can check every
@@ -220,7 +222,7 @@ func validateRestoreDestination(c Config, path string) (bool, error) {
 		return false, err
 	}
 	if !missing && info.Mode()&os.ModeSymlink != 0 {
-		return false, fmt.Errorf("refusing to replace a symbolic link: use %s recover with a new destination", profileCommand())
+		return false, fmt.Errorf("refusing to replace a symbolic link: use %s recover with a new destination", c.operationProfile().command())
 	}
 	root, err := canonicalPath(path)
 	if err != nil {
@@ -230,20 +232,20 @@ func validateRestoreDestination(c Config, path string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	for _, control := range profileControls(profiles) {
+	for _, control := range c.operationProfile().controls(profiles) {
 		resolved, err := canonicalControl(control)
 		if err != nil {
 			return false, fmt.Errorf("cannot resolve cairn configuration/password, nothing restored: %w", err)
 		}
 		control = resolved
 		if withinPath(control, root) || withinPath(root, control) {
-			return false, fmt.Errorf("destination overlaps cairn configuration or passwords; use %s recover to keep undo access available", profileCommand())
+			return false, fmt.Errorf("destination overlaps cairn configuration or passwords; use %s recover to keep undo access available", c.operationProfile().command())
 		}
 	}
 	for _, configuredRepo := range localRepositories(c, profiles) {
 		repo, repoErr := canonicalPath(configuredRepo)
 		if repoErr == nil && (withinPath(root, repo) || withinPath(repo, root)) {
-			return false, fmt.Errorf("restore destination overlaps the backup repository; use %s recover with a new destination", profileCommand())
+			return false, fmt.Errorf("restore destination overlaps the backup repository; use %s recover with a new destination", c.operationProfile().command())
 		}
 	}
 	return missing, nil
@@ -374,7 +376,7 @@ func cmdRestore(c Config, p, at, to string, yes bool) error {
 		return err
 	}
 	if undo != "" {
-		note("undo: " + undoCommand(p, undo))
+		note("undo: " + c.operationProfile().undoCommand(p, undo))
 	}
 	if err := restoreSaved(r, s, n, p, p, undo); err != nil {
 		return err

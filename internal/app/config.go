@@ -18,14 +18,15 @@ type Job struct {
 }
 
 type Config struct {
-	Target      string    `json:"target"` // as the user typed it
-	Repo        string    `json:"repo"`   // what restic gets as the repository
-	Host        string    `json:"host"`
-	BackupScope string    `json:"backup_scope"`
-	Since       time.Time `json:"since,omitzero"` // when init ran here; rebuild only trusts older backups
-	Snapshot    Job       `json:"snapshot"`
-	Backup      Job       `json:"backup"`
-	Exclude     []string  `json:"exclude,omitempty"`
+	profile     profileContext // selected in memory, never serialized
+	Target      string         `json:"target"` // as the user typed it
+	Repo        string         `json:"repo"`   // what restic gets as the repository
+	Host        string         `json:"host"`
+	BackupScope string         `json:"backup_scope"`
+	Since       time.Time      `json:"since,omitzero"` // when init ran here; rebuild only trusts older backups
+	Snapshot    Job            `json:"snapshot"`
+	Backup      Job            `json:"backup"`
+	Exclude     []string       `json:"exclude,omitempty"`
 }
 
 const (
@@ -81,7 +82,7 @@ var builtinExcludes = []string{
 var home, _ = os.UserHomeDir()
 
 func configRoot() string   { d, _ := os.UserConfigDir(); return filepath.Join(d, "cairn") }
-func configDir() string    { return profileDir(configRoot(), selectedProfile) }
+func configDir() string    { return cliProfile().configDir() }
 func configFile() string   { return filepath.Join(configDir(), "config.json") }
 func passwordFile() string { return filepath.Join(configDir(), "password") }
 
@@ -92,7 +93,7 @@ func stateRoot() string {
 	return filepath.Join(home, ".local", "state", "cairn")
 }
 
-func stateDir() string { return profileDir(stateRoot(), selectedProfile) }
+func stateDir() string { return cliProfile().stateDir() }
 
 func dataDir() string {
 	if d := os.Getenv("XDG_DATA_HOME"); d != "" {
@@ -119,8 +120,18 @@ func loadConfig() (Config, error) {
 	return c, err
 }
 
+func (c Config) operationProfile() profileContext {
+	if c.profile != "" {
+		return c.profile
+	}
+	return cliProfile() // freshly constructed CLI configuration, before its first save
+}
+
 func loadProfile(name string) (Config, error) {
-	var c Config
+	if !validProfile(name) {
+		return Config{}, fmt.Errorf("invalid profile name")
+	}
+	c := Config{profile: profileContext(name)}
 	if err := checkProfileDirectory(name); err != nil {
 		return c, err
 	}
@@ -169,14 +180,15 @@ func (c Config) validate() error {
 }
 
 func (c Config) save() error {
-	if err := checkProfileDirectory(selectedProfile); err != nil {
+	p := c.operationProfile()
+	if err := checkProfileDirectory(p.name()); err != nil {
 		return err
 	}
 	b, _ := json.MarshalIndent(c, "", "  ")
-	if err := os.MkdirAll(configDir(), 0o700); err != nil {
+	if err := os.MkdirAll(p.configDir(), 0o700); err != nil {
 		return err
 	}
-	f, err := os.CreateTemp(configDir(), ".config-*")
+	f, err := os.CreateTemp(p.configDir(), ".config-*")
 	if err != nil {
 		return err
 	}
@@ -188,7 +200,7 @@ func (c Config) save() error {
 	if err := f.Close(); err != nil {
 		return err
 	}
-	return os.Rename(f.Name(), configFile())
+	return os.Rename(f.Name(), filepath.Join(p.configDir(), "config.json"))
 }
 
 func (c *Config) job(kind string) *Job {
@@ -332,8 +344,9 @@ func (c Config) excludeArgs() ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	ex := slices.Concat(builtinExcludes, c.Exclude, []string{globEscape(filepath.Join(stateDir(), "rebuild"))})
-	names := []string{"default", selectedProfile}
+	p := c.operationProfile()
+	ex := slices.Concat(builtinExcludes, c.Exclude, []string{globEscape(filepath.Join(p.stateDir(), "rebuild"))})
+	names := []string{"default", p.name()}
 	for name := range profiles {
 		names = append(names, name)
 	}

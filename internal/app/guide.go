@@ -33,18 +33,19 @@ func (m *model) resizeGuide() {
 	width := uiWidth(m.w)
 	m.guide.SetWidth(max(width-6, 1))
 	m.guide.SetHeight(max(m.h-11-lipgloss.Height(uiKeys(width, uiKeyPairs(m.scr)...)), 3))
-	text := basicHelp()
+	p := m.c.operationProfile()
+	text := p.basicHelp()
 	if m.scr == storageDetails {
 		s := m.destination
 		text = accent.Render(s.Name) + "\n" + ink.Render(s.Summary) + "\n\n" +
-			code.Render("SET UP FROM YOUR TERMINAL") + "\n" + strings.ReplaceAll(s.Setup, "cairn ", profileCommand()+" ") + "\n\n" +
-			dim.Render(strings.ReplaceAll(s.Detail, "cairn ", profileCommand()+" ")) + "\n\n" +
-			dim.Render("This is a setup guide for profile "+selectedProfile+". Changing its repository with init asks first. Use --profile with a new name to keep both destinations.")
+			code.Render("SET UP FROM YOUR TERMINAL") + "\n" + strings.ReplaceAll(s.Setup, "cairn ", p.command()+" ") + "\n\n" +
+			dim.Render(strings.ReplaceAll(s.Detail, "cairn ", p.command()+" ")) + "\n\n" +
+			dim.Render("This is a setup guide for profile "+p.name()+". Changing its repository with init asks first. Use --profile with a new name to keep both destinations.")
 	}
 	m.guide.SetContent(ansi.Wrap(text, m.guide.Width(), ""))
 }
 
-func basicHelp() string {
+func (p profileContext) basicHelp() string {
 	text := strings.Join([]string{
 		accent.Render("A saved version. A way back."),
 		"Snapshots save your home and any folders you add.",
@@ -57,6 +58,7 @@ func basicHelp() string {
 		"r  Browse saved versions, open a folder, and select a file to restore.",
 		"e  Change how often backups run and how many versions you keep.",
 		"t  See setup guides for disks, NAS shares, and cloud storage.",
+		"p  View profiles, filter with /, then open one for this session.",
 		"",
 		code.Render("GET A FILE BACK"),
 		"cairn restore notes.md         Preview, then ask before restoring.",
@@ -72,5 +74,5 @@ func basicHelp() string {
 		"",
 		"cairn help <command> gives examples. cairn --skill is the agent reference.",
 	}, "\n")
-	return strings.ReplaceAll(text, "cairn ", profileCommand()+" ")
+	return strings.ReplaceAll(text, "cairn ", p.command()+" ")
 }
