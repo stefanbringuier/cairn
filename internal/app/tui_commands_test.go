@@ -172,3 +172,91 @@ func TestScopedComponentCommandsPreserveSequenceAndNestedBatch(t *testing.T) {
 		t.Fatalf("unexpected scoped leaves: %+v", messages)
 	}
 }
+
+// A synthetic command leaf stands in for Bubbles' private Ctrl+V result. It
+// never calls the real clipboard. Public bracketed paste is tested separately.
+func syntheticPasteReply(scope componentScope, text string) tea.Msg {
+	return scopedComponentCmd(func() tea.Msg { return tea.PasteMsg{Content: text} }, scope)()
+}
+
+func assertPasteIsScheduled(t *testing.T, m model) {
+	t.Helper()
+	_, cmd := m.Update(tea.KeyPressMsg{Code: 'v', Mod: tea.ModCtrl})
+	if cmd == nil {
+		t.Fatal("active editor did not schedule Ctrl+V")
+	}
+	// Never run this command: Bubbles would read the actual clipboard.
+}
+
+func TestPickerClipboardRepliesStayWithTheirEditor(t *testing.T) {
+	m, _ := newBrowseReadFixture(t)
+	m, _ = pressBrowseKey(m, 'p')
+	m, _ = pressBrowseKey(m, '/')
+	assertPasteIsScheduled(t, m)
+	old := syntheticPasteReply(m.pickerScope(), "old")
+	m, _ = pressBrowseKey(m, tea.KeyEscape) // cancel editing
+	m, _ = pressBrowseKey(m, tea.KeyEscape) // return to dashboard
+	m, _ = pressBrowseKey(m, 'p')
+	m, _ = pressBrowseKey(m, '/')
+	m = deliverComponentMessages(m, []tea.Msg{old})
+	if got := m.profiles.input.Value(); got != "" {
+		t.Fatalf("old reply entered a replacement picker: %q", got)
+	}
+
+	current := syntheticPasteReply(m.pickerScope(), "new")
+	second := syntheticPasteReply(m.pickerScope(), " input")
+	m = deliverComponentMessages(m, []tea.Msg{current, second})
+	m = deliverComponentMessages(m, []tea.Msg{tea.PasteMsg{Content: " text"}})
+	if got := m.profiles.input.Value(); got != "new input text" {
+		t.Fatalf("current reply or bracketed paste was lost: %q", got)
+	}
+	m.profiles.index = 1
+	type unownedReply string
+	m = deliverComponentMessages(m, []tea.Msg{unownedReply("inert")})
+	if m.profiles.index != 1 {
+		t.Fatal("unowned nonterminal message reached the picker editor")
+	}
+}
+
+func TestListClipboardRepliesStayWithTheirEditor(t *testing.T) {
+	m, _ := newBrowseReadFixture(t)
+	m.scr = snapList
+	m.setList("inert rows", []list.Item{item{title: "x inert"}})
+	m, _ = pressBrowseKey(m, '/')
+	assertPasteIsScheduled(t, m)
+	old := syntheticPasteReply(m.listScope(), "old")
+	m.setList("replacement inert rows", []list.Item{item{title: "x replacement"}})
+	m, _ = pressBrowseKey(m, '/')
+	m = deliverComponentMessages(m, []tea.Msg{old})
+	if got := m.list.FilterInput.Value(); got != "" {
+		t.Fatalf("old reply entered a replacement list: %q", got)
+	}
+
+	current := syntheticPasteReply(m.listScope(), "x")
+	second := syntheticPasteReply(m.listScope(), " ")
+	m = deliverComponentMessages(m, []tea.Msg{current, second})
+	if got := m.list.FilterInput.Value(); got != "x " {
+		t.Fatalf("current reply was lost: %q", got)
+	}
+	previousEditor := syntheticPasteReply(m.listScope(), "old")
+	m, _ = pressBrowseKey(m, tea.KeyEnter) // keep the query, not the editor
+	m, _ = pressBrowseKey(m, '/')          // reopen the same query
+	m = deliverComponentMessages(m, []tea.Msg{previousEditor, tea.PasteMsg{Content: "ry"}})
+	if got := m.list.FilterInput.Value(); got != "x ry" {
+		t.Fatalf("editor reply or bracketed paste routing was wrong: %q", got)
+	}
+}
+
+func TestAcceptedListQueryCanReceiveItsPendingMatches(t *testing.T) {
+	m, _ := newBrowseReadFixture(t)
+	m.scr = snapList
+	m.setList("inert rows", []list.Item{item{title: "other"}, item{title: "x match"}})
+	m, _ = pressBrowseKey(m, '/')
+	next, matches := m.Update(tea.PasteMsg{Content: "x"})
+	m, _ = pressBrowseKey(next.(model), tea.KeyEnter)
+	if m.list.FilterState() != list.FilterApplied {
+		t.Fatal("query was not applied before its matches arrived")
+	}
+	m = deliverComponentMessages(m, componentMessages(matches))
+	assertMockSelection(t, m, "x match")
+}

@@ -209,7 +209,8 @@ func (m model) profileKey(key string) (tea.Model, tea.Cmd, bool) {
 	switch key {
 	case "/":
 		p.filtering = true
-		cmd := p.input.Focus()
+		m.pickerEditorRevision++
+		cmd := scopedComponentCmd(p.input.Focus(), m.pickerScope())
 		return m, cmd, true
 	case "up", "k":
 		p.index = max(0, p.index-1)

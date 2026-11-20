@@ -56,8 +56,10 @@ results carry a generation rather than just a profile name. Snapshot and
 directory reads also carry a request identity within that generation. Only
 the current request can complete its loading state. Leaving the screen or
 starting a restore preview detaches that read without canceling restic. List
-filter results also carry the list and query identity, and form commands stay
-with the settings form that issued them, including batched and sequenced work.
+filter results also carry the list and query identity. Asynchronous picker and
+list input, including clipboard replies, belongs to the originating editor.
+Form commands stay with the settings form that issued them, including batched
+and sequenced work.
 A separate preview request key discards canceled previews. The live TUI
 never changes the CLI's selection or signals already started jobs.
 Each profile also selects machine or data-only scope. Data-only exclusions cover

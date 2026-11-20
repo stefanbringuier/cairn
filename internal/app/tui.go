@@ -99,6 +99,8 @@ type model struct {
 	profileRequest, previewRequest int
 	browseSequence, browseRequest  int // one owner for the snapshot/directory spinner
 	listInstance, filterRevision   int
+	listEditorRevision             int
+	pickerEditorRevision           int
 	settingsInstance               int
 	profiles                       profilesView
 	restorePending, restoring      bool
@@ -197,7 +199,7 @@ func (m *model) loadSnaps() tea.Cmd {
 
 func (m *model) setList(title string, items []list.Item) {
 	m.listInstance++
-	m.filterRevision = 0
+	m.filterRevision, m.listEditorRevision = 0, 0
 	m.list.SetDelegate(uiDelegate(m.scr != storageList))
 	m.list.Title = title
 	m.list.ResetFilter()
@@ -256,9 +258,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case componentResult:
 		switch msg.scope.kind {
-		case listComponent:
-			if m.hasListScreen() && msg.scope == m.listScope() && m.list.FilterState() != list.Unfiltered {
+		case listMatches:
+			if m.hasListScreen() && msg.scope == m.listMatchesScope() && m.list.FilterState() != list.Unfiltered {
 				cmd := m.updateList(msg.message)
+				return m, cmd
+			}
+		case listComponent:
+			if m.hasListScreen() && m.ownsListEditor(msg.scope) {
+				if _, quit := msg.message.(tea.QuitMsg); quit {
+					return m, tea.Quit
+				}
+				cmd := m.updateList(msg.message)
+				return m, cmd
+			}
+		case pickerComponent:
+			if m.scr == profilesScreen && m.profiles.filtering && msg.scope == m.pickerScope() {
+				cmd := m.updatePickerInput(msg.message)
 				return m, cmd
 			}
 		case settingsComponent:
@@ -463,13 +478,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 	}
-	if m.scr == profilesScreen && m.profiles.filtering {
-		var cmd tea.Cmd
-		m.profiles.input, cmd = m.profiles.input.Update(msg)
-		if value := m.profiles.input.Value(); value != clean(value) {
-			m.profiles.input.SetValue(clean(value))
-		}
-		m.profiles.index = 0
+	if m.scr == profilesScreen && m.profiles.filtering && terminalComponentEvent(msg) {
+		cmd := m.updatePickerInput(msg)
 		return m, cmd
 	}
 	if m.scr == settings && m.form != nil {
@@ -486,7 +496,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.guide, cmd = m.guide.Update(msg)
 		return m, cmd
 	}
-	if m.hasListScreen() {
+	if m.hasListScreen() && terminalComponentEvent(msg) {
 		cmd := m.updateList(msg)
 		return m, cmd
 	}
@@ -530,6 +540,7 @@ func (m model) dashKey(k string) (tea.Model, tea.Cmd) {
 		m.cancelBrowseRead()
 		m.scr, m.flash = profilesScreen, ""
 		m.profiles = newProfilesView()
+		m.pickerEditorRevision++
 		cmd := m.refreshProfiles()
 		return m, cmd
 	case "t":
