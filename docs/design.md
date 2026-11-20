@@ -24,12 +24,14 @@ program stays independent of the docs and screenshot tooling.
 
 ## Named profiles
 
-One invocation selects one profile with the global prefix `--profile NAME`.
-The implicit `default` profile retains legacy files and units in place; named
-profiles use `profiles/NAME` beneath the same config and state roots. Selection
-is never persisted. The TUI, restic password, settings, status, manifests,
-progress, pruning marker, rebuild scratch and printed commands all use that
-selection. When a path contains terminal controls, undo prints the profile and
+The prefix `--profile NAME` chooses the profile for a CLI command and the
+starting dashboard for an interactive session. The implicit `default` profile
+retains legacy files and units in place; named profiles use `profiles/NAME`
+beneath the same config and state roots. Selection is never persisted.
+A loaded configuration carries a runtime-only profile identity used by restic
+credentials, settings, status, progress, timers, and restore commands. CLI
+background jobs still use the profile in the generated command. When a path
+contains terminal controls, undo prints the profile and
 snapshot ID instead of constructing a command from a sanitized path.
 Dependency binaries remain shared.
 Unqualified interactive dashboard startup checks for an absent default config
@@ -40,8 +42,26 @@ the chosen configuration and set the invocation's selection before starting
 the dashboard and its asynchronous work. This does not mutate selection while
 repository commands are in flight. Explicit selection, non-TTY commands and
 JSON retain strict default/profile behavior; malformed configs and dangling
-default config symlinks cannot trigger fallback. Full switching inside a live
-dashboard is separate work; the startup chooser does not provide that feature.
+default config symlinks cannot trigger fallback.
+
+The live Profiles overview reads and revalidates local inventory independently
+of strict cross-profile repository checks used by backup and restore. Broken
+rows are shown but cannot be opened; they are not dropped from strict safety
+checks. Timer queries are read-only and share a deadline. Overview refreshes
+never run restic or bootstrap tools. The dashboard validates the local
+configuration before switching; repository availability is reported afterwards.
+The Bubble Tea model resets per-profile state on a successful switch. Profile
+operations capture the loaded configuration, and profile-specific asynchronous
+results carry a generation rather than just a profile name. Snapshot and
+directory reads also carry a request identity within that generation. Only
+the current request can complete its loading state. Leaving the screen or
+starting a restore preview detaches that read without canceling restic. List
+filter results also carry the list and query identity. Asynchronous picker and
+list input, including clipboard replies, belongs to the originating editor.
+Form commands stay with the settings form that issued them, including batched
+and sequenced work.
+A separate preview request key discards canceled previews. The live TUI
+never changes the CLI's selection or signals already started jobs.
 Each profile also selects machine or data-only scope. Data-only exclusions cover
 all default/named manifests and orphaned state, preventing recipes from another
 profile leaking into a HOME source. Rclone accounts and definitions remain in

@@ -117,10 +117,14 @@ cairn --profile personal
 cairn --profile phin
 ```
 
-The chooser is for startup; switching within an open dashboard is not yet
-available. Quit the dashboard and reopen it to select another profile.
+This chooser is only for startup. Use **p** in any dashboard to select another
+profile without quitting.
 
 ![Startup profile chooser from the running app](images/profile-chooser.png)
+
+![Live Profiles overview at 110 columns](images/profiles-overview.png)
+
+![Live Profiles overview at 40 columns and 24 rows](images/profiles-overview-small.png)
 
 ```sh
 cairn --profile cloud snapshot
@@ -143,7 +147,18 @@ keeps the old configuration and removes only its newly generated unused password
 The NAS example uses machine scope; the cloud example uses data-only scope for
 Projects. Rclone remote definitions and authentication remain shared in normal
 rclone configuration (`RCLONE_CONFIG` or its XDG default), including when cloud
-setup is invoked with a profile. Profiles keep separate restic passwords and
+setup is invoked with a profile. From an open dashboard, press **p** for
+Profiles. You'll see destinations, scopes, schedules, and whether each timer
+is enabled, disabled, or unknown. Use arrows or **j/k** to move. Press **/** to
+filter by name or destination, Enter to apply the filter, and Enter again to
+open the highlighted profile. Escape clears the filter or returns to the
+dashboard; **r** refreshes local profiles and timers. This screen is read-only;
+open a profile before taking actions. Switching lasts for this session and
+doesn't change schedules or interrupt jobs. Finish or cancel a restore
+before switching. Press **t** for destination setup rather than profile
+selection.
+
+Profiles keep separate restic passwords and
 cairn settings/state; they do not create separate rclone accounts.
 
 `cairn profiles --json` lists every configured profile with `name`, `target`, `backup_scope`,

@@ -24,14 +24,19 @@ const (
 
 type Restic struct {
 	bin, repo, rclone string
+	profile           profileContext
 }
 
 func newRestic(c Config) (Restic, error) {
+	p := c.operationProfile()
+	if err := checkProfileDirectory(p.name()); err != nil {
+		return Restic{}, err
+	}
 	bin, err := tool("restic")
 	if err != nil {
 		return Restic{}, err
 	}
-	r := Restic{bin: bin, repo: c.Repo}
+	r := Restic{bin: bin, repo: c.Repo, profile: p}
 	if strings.HasPrefix(c.Repo, "rclone:") {
 		if r.rclone, err = tool("rclone"); err != nil {
 			return Restic{}, err
@@ -44,8 +49,13 @@ func newRestic(c Config) (Restic, error) {
 // paths can never be read as options.
 func (r Restic) cmd(args ...string) *exec.Cmd {
 	var base []string
-	if _, err := os.Stat(passwordFile()); err == nil {
-		base = append(base, "--password-file", passwordFile())
+	p := r.profile
+	if p == "" {
+		p = cliProfile()
+	}
+	password := p.passwordFile()
+	if _, err := os.Stat(password); err == nil {
+		base = append(base, "--password-file", password)
 	} else {
 		base = append(base, "--insecure-no-password")
 	}

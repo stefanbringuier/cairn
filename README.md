@@ -78,7 +78,8 @@ go install github.com/stefanbringuier/cairn/cmd/cairn@latest
 ![Destination options in the TUI](docs/images/storage-guide.png)
 ![Google Drive setup commands in the TUI](docs/images/drive-setup.png)
 
-Press **t** for destination guides and **?** for the basics. These screens show
+Press **p** to view or switch backup profiles for this session, **t** for
+destination guides, and **?** for the basics. These screens show
 setup instructions; the demo repository is local.
 
 </details>

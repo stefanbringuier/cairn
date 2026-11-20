@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { readFile, mkdir } from "node:fs/promises";
 import { createInterface } from "node:readline";
@@ -7,6 +8,9 @@ import { chromium } from "playwright";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "../..");
+const requested = process.env.CAIRN_SCREENSHOT_ONLY?.split(",");
+const profileCaptures = ["profiles-overview", "profiles-overview-small"];
+const onlyProfiles = Boolean(requested?.length && requested.every((name) => profileCaptures.includes(name)));
 const output = path.join(root, "docs/images");
 await mkdir(output, { recursive: true });
 
@@ -46,13 +50,18 @@ try {
   await page.evaluate(() => terminal.onData((input) => window.sendInput(input)));
   let writes = Promise.resolve();
   let writeError;
+  let receiptResolver;
   const startFixture = (mode = "tui") => {
     fixture = spawn("python3", [path.join(here, "fixture.py"), path.join(root, "bin/cairn"), mode], {
       stdio: ["pipe", "pipe", "inherit"],
     });
     fixture.on("error", (error) => { writeError = error; });
     createInterface({ input: fixture.stdout }).on("line", (line) => {
-      const { output } = JSON.parse(line);
+      const { output, receipt } = JSON.parse(line);
+      if (receipt) {
+        receiptResolver?.(receipt);
+        return;
+      }
       writes = writes.then(() => page.evaluate((encoded) => new Promise((resolve) => {
         terminal.write(Uint8Array.from(atob(encoded), (char) => char.charCodeAt(0)), resolve);
       }), output)).catch((error) => { writeError = error; });
@@ -67,7 +76,15 @@ try {
     });
     await writes;
   };
-  startFixture();
+  const receipt = (message = { receipt: true }) => new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("No fixture receipt")), 20000);
+    receiptResolver = (result) => {
+      clearTimeout(timer);
+      receiptResolver = undefined;
+      resolve(result);
+    };
+    fixture.stdin.write(JSON.stringify(message) + "\n");
+  });
   const ready = async (text) => {
     const deadline = Date.now() + 20000;
     while (Date.now() < deadline) {
@@ -99,6 +116,186 @@ try {
     console.log(`Captured docs/images/${name}.png`);
   };
 
+  const openProfiles = async (current) => {
+    await key("p");
+    await ready("Read-only");
+    await ready("enter");
+    await ready("current");
+    assert.match(await page.evaluate(() => screenText()), new RegExp(`cairn · ${current}\\s+/\\s+profiles`));
+  };
+  const screen = () => page.evaluate(() => screenText());
+  const requireAbsent = async (text) => {
+    const deadline = Date.now() + 3000;
+    do {
+      await writes;
+      if (!(await screen()).includes(text)) return;
+      await page.waitForTimeout(50);
+    } while (Date.now() < deadline);
+    throw new Error(`Unexpected ${JSON.stringify(text)} in terminal:\n${await screen()}`);
+  };
+  const choose = async (filter, profile) => {
+    await key("/");
+    await key(filter);
+    await ready(`Filter: ${filter}`);
+    await key("\r");
+    await key("\r");
+    await ready(`BACKUP TARGET · ${profile}`);
+    await ready("1 kept");
+  };
+  const profileRun = async (mode, cols, rows, capture, effects) => {
+    const current = mode === "profiles-nas" ? "nas" : "default";
+    await page.evaluate(([cols, rows, current]) => {
+      terminal.reset();
+      terminal.resize(cols, rows);
+      document.querySelector(".window").style.width = cols === 40 ? "fit-content" : "100%";
+      document.querySelector(".label").textContent = current === "nas" ? "cairn --profile nas · demo" : "cairn · demo-laptop";
+    }, [cols, rows, current]);
+    startFixture(mode);
+    await ready(`BACKUP TARGET · ${current}`);
+    await ready("1 kept");
+    await ready("profiles");
+    await key("?");
+    await ready("A saved version.");
+    await key("\u001b");
+    await ready(`BACKUP TARGET · ${current}`);
+    await openProfiles(current);
+    await ready(`${current} · current`);
+    const before = await receipt();
+    if (cols === 110) {
+      const view = await screen();
+      assert.ok(view.indexOf("cloud ·") < view.indexOf("default ·") && view.indexOf("default ·") < view.indexOf("nas ·"));
+      await ready("example.test/backups/cloud-projects");
+      await ready("data-only");
+      await ready("daily · disabled");
+      await ready("daily · unknown");
+    }
+    for (const secret of ["fixture-username", "fixture-secret", "fixture-token", "fixture-fragment"]) await requireAbsent(secret);
+    await grab(capture);
+    await key("j");
+    await key("k");
+    await key("\u001b[B");
+    await key("\u001b[A");
+    await key("/");
+    await key("not-a-profile");
+    await ready("No matching profiles");
+    await key("\u001b");
+    await ready(`${current} · current`);
+    await key("/");
+    await key("office-archive");
+    await ready("Filter: office-archive");
+    await key("\r");
+    await ready("nas ·");
+    await requireAbsent("cloud ·");
+    await key("\u001b");
+    await requireAbsent("Filter:");
+    await key("r");
+    await ready("Read-only");
+    for (const cols of [60, 110]) {
+      await page.evaluate((width) => terminal.resize(width, 24), cols);
+      fixture.stdin.write(JSON.stringify({ resize: [24, cols] }) + "\n");
+      await ready("refresh");
+    }
+    const observed = await receipt();
+    assert.deepEqual(observed.control, before.control);
+    assert.deepEqual(observed.repos, before.repos);
+    assert.deepEqual(observed.restic, before.restic);
+    assert.deepEqual(observed.notes, before.notes);
+    assert.ok(observed.systemctl.slice(before.systemctl.length).every((line) => /--user (show|is-enabled) /.test(line)));
+    await key("\u001b");
+    await ready(`BACKUP TARGET · ${current}`);
+    await key("t");
+    await ready("Where can I save backups?");
+    await key("\u001b");
+    await ready(`BACKUP TARGET · ${current}`);
+    await openProfiles(current);
+    await choose("cloud", "cloud");
+    const switched = await receipt();
+    assert.deepEqual(switched.control, before.control);
+    assert.deepEqual(switched.repos, before.repos);
+    assert.ok(switched.restic.some((line) => /repository-cloud\|.*profiles\/cloud\/password.* snapshots/.test(line)));
+    assert.ok(switched.systemctl.slice(before.systemctl.length).every((line) => /--user (show|is-enabled) /.test(line)));
+    if (effects) {
+      await key("s");
+      await ready("snapshot started");
+      await key("b");
+      await ready("backup started");
+      await key("e");
+      await ready("cairn · cloud  /  settings");
+      await ready("Snapshot every");
+      await key("\u001b[C");
+      await ready("6h");
+      for (let i = 0; i < 4; i++) await key("\r");
+      await ready("settings saved");
+      await ready("1 kept");
+      const settings = await receipt();
+      assert.notEqual(settings.control["cairn/profiles/cloud/config.json"], before.control["cairn/profiles/cloud/config.json"]);
+      for (const [file, digest] of Object.entries(before.control)) {
+        if (file !== "cairn/profiles/cloud/config.json") assert.equal(settings.control[file], digest, file);
+      }
+      const calls = settings.systemctl.slice(switched.systemctl.length);
+      for (const kind of ["snapshot", "backup"]) {
+        assert.ok(calls.includes(`--user start --no-block cairn-cloud-${kind}.service`));
+        assert.ok(calls.includes(`--user enable --now cairn-cloud-${kind}.timer`));
+      }
+      for (const line of calls) {
+        if (!line.startsWith("--user show ")) assert.match(line, /^--user (?:daemon-reload|(?:start|enable) .*cairn-cloud-)/);
+      }
+      assert.deepEqual(settings.repos, before.repos); // The service shim tests dispatch, not backup execution.
+      await key("r");
+      await ready("Saved versions");
+      await ready("1 item");
+      await key("\r");
+      await ready("cloud-notes.md");
+      await key("r");
+      await ready("will be saved first");
+      assert.match(await screen(), /cairn · cloud\s+\/\s+restore \/ preview/);
+      await key("p");
+      await ready("will be saved first");
+      await key("y");
+      await ready("undo: cairn --profile cloud restore --at");
+      const restored = await receipt();
+      const undo = restored.repos["repository-cloud"].filter((id) => !before.repos["repository-cloud"].includes(id));
+      assert.equal(undo.length, 1);
+      assert.ok((await screen()).replace(/\n\s*/g, "").includes(undo[0]), "Undo command did not display the full snapshot ID");
+      assert.equal(restored.notes["cloud-notes.md"], "cloud saved content\n");
+      assert.deepEqual(restored.repos["repository-default"], before.repos["repository-default"]);
+      assert.deepEqual(restored.repos["repository-nas"], before.repos["repository-nas"]);
+      for (const [note, text] of Object.entries(before.notes)) {
+        if (note !== "cloud-notes.md") assert.equal(restored.notes[note], text);
+      }
+      const undone = await receipt({ undo: undo[0] });
+      assert.deepEqual(undone.notes, before.notes);
+      for (const line of undone.restic.slice(switched.restic.length)) {
+        if (line.endsWith("|version")) continue;
+        assert.match(line, /repository-cloud\|.*profiles\/cloud\/password/);
+      }
+      console.log("Verified cloud-local settings, timer dispatch, history, restore, displayed undo and executed undo.");
+      await key("\u001b");
+      await ready("BACKUP TARGET · cloud");
+    }
+    const inFlight = effects ? await receipt({ background: "start" }) : undefined;
+    await openProfiles("cloud");
+    await choose("office-archive", "nas");
+    if (inFlight) {
+      const afterSwitch = await receipt();
+      assert.deepEqual(afterSwitch.repos, inFlight.repos);
+      assert.ok(afterSwitch.systemctl.slice(inFlight.systemctl.length).every((line) => /--user (show|is-enabled) /.test(line)));
+      const completed = await receipt({ background: "finish" });
+      assert.deepEqual(completed.repos["repository-default"], inFlight.repos["repository-default"]);
+      assert.deepEqual(completed.repos["repository-nas"], inFlight.repos["repository-nas"]);
+      assert.ok(completed.repos["repository-cloud"].some((id) => !inFlight.repos["repository-cloud"].includes(id)));
+      console.log("Verified the generated cloud snapshot service continues across the switch to NAS.");
+    }
+    await key("q");
+    await stopFixture();
+    console.log(`Verified ${mode}: ${cols}×${rows}, filtering, local-only inventory, cloud→nas, live resize to 60×24 and 110×24.`);
+  };
+
+  if (onlyProfiles) {
+    await profileRun("profiles", 110, 32, "profiles-overview", true);
+    await profileRun("profiles-nas", 40, 24, "profiles-overview-small", false);
+  } else {
+  startFixture();
   await ready("4 kept");
   await grab("dashboard");
   await key("r");
@@ -247,6 +444,12 @@ try {
   await ready("Cancel");
   await grab("cli-restore");
   await key("n\r");
+  await stopFixture();
+  if (!requested || requested.some((name) => profileCaptures.includes(name))) {
+    await profileRun("profiles", 110, 32, "profiles-overview", true);
+    await profileRun("profiles-nas", 40, 24, "profiles-overview-small", false);
+  }
+  }
 } finally {
   if (fixture) {
     fixture.stdin.end();

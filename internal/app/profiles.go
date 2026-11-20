@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -11,6 +12,25 @@ import (
 
 // Selection lasts for one invocation; default preserves the original file layout.
 var selectedProfile = "default"
+
+// profileContext is the immutable profile identity an operation captures before it runs.
+// Only the synchronous CLI selection uses selectedProfile; a live dashboard never writes it.
+type profileContext string
+
+func cliProfile() profileContext { return profileContext(selectedProfile) }
+
+func (p profileContext) name() string {
+	if p == "" {
+		return "default"
+	}
+	return string(p)
+}
+func (p profileContext) configDir() string    { return profileDir(configRoot(), p.name()) }
+func (p profileContext) stateDir() string     { return profileDir(stateRoot(), p.name()) }
+func (p profileContext) passwordFile() string { return filepath.Join(p.configDir(), "password") }
+func (p profileContext) progressFile(kind string) string {
+	return filepath.Join(p.stateDir(), kind+".progress")
+}
 
 func validProfile(name string) bool {
 	if len(name) < 1 || len(name) > 48 || name[0] == '-' || name[len(name)-1] == '-' {
@@ -54,11 +74,13 @@ func profileDir(root, name string) string {
 	return filepath.Join(root, "profiles", name)
 }
 
-func profileCommand() string {
-	if selectedProfile == "default" {
+func profileCommand() string { return cliProfile().command() }
+
+func (p profileContext) command() string {
+	if p.name() == "default" {
 		return "cairn"
 	}
-	return "cairn --profile " + selectedProfile
+	return "cairn --profile " + p.name()
 }
 
 // Profile directories cannot redirect credentials or writes outside the profile root.
@@ -85,11 +107,13 @@ func checkProfilePath(path string) error {
 	return nil
 }
 
-func unitName(kind string) string {
-	if selectedProfile == "default" {
+func unitName(kind string) string { return cliProfile().unitName(kind) }
+
+func (p profileContext) unitName(kind string) string {
+	if p.name() == "default" {
 		return "cairn-" + kind
 	}
-	return "cairn-" + selectedProfile + "-" + kind
+	return "cairn-" + p.name() + "-" + kind
 }
 
 func configuredProfiles() (map[string]Config, error) {
@@ -142,8 +166,8 @@ func localRepositories(c Config, profiles map[string]Config) []string {
 	return repos
 }
 
-func profileControls(profiles map[string]Config) []string {
-	names := []string{"default", selectedProfile}
+func (p profileContext) controls(profiles map[string]Config) []string {
+	names := []string{"default", p.name()}
 	for name := range profiles {
 		names = append(names, name)
 	}
@@ -213,7 +237,11 @@ type profileInfo struct {
 }
 
 func timerEnabled(timer string) *bool {
-	out, _ := systemctl("is-enabled", timer)
+	return timerEnabledContext(context.Background(), timer)
+}
+
+func timerEnabledContext(ctx context.Context, timer string) *bool {
+	out, _ := systemctlWithContext(ctx, "is-enabled", timer)
 	var enabled bool
 	switch strings.TrimSpace(string(out)) {
 	case "enabled", "enabled-runtime":

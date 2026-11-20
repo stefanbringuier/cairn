@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -15,10 +16,15 @@ import (
 func unitDir() string { d, _ := os.UserConfigDir(); return filepath.Join(d, "systemd", "user") }
 
 func systemctl(args ...string) ([]byte, error) {
-	if os.Getenv("XDG_RUNTIME_DIR") == "" { // e.g. under su; systemctl --user needs it
-		os.Setenv("XDG_RUNTIME_DIR", fmt.Sprintf("/run/user/%d", os.Getuid()))
+	return systemctlWithContext(context.Background(), args...)
+}
+
+func systemctlWithContext(ctx context.Context, args ...string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, "systemctl", append([]string{"--user"}, args...)...) // #nosec G204 -- fixed binary
+	if os.Getenv("XDG_RUNTIME_DIR") == "" {                                              // e.g. under su; systemctl --user needs it
+		cmd.Env = append(os.Environ(), fmt.Sprintf("XDG_RUNTIME_DIR=/run/user/%d", os.Getuid()))
 	}
-	return exec.Command("systemctl", append([]string{"--user"}, args...)...).CombinedOutput() // #nosec G204 -- fixed binary
+	return cmd.CombinedOutput()
 }
 
 const serviceUnit = `[Unit]
@@ -73,6 +79,7 @@ func scheduleEnvironment() (string, error) {
 
 // applySchedule writes both services and turns each timer on or off to match the config.
 func applySchedule(c Config) error {
+	p := c.operationProfile()
 	self, err := os.Executable()
 	if err != nil {
 		return err
@@ -103,12 +110,12 @@ func applySchedule(c Config) error {
 		if err != nil {
 			return err
 		}
-		unit := filepath.Join(unitDir(), unitName(kind))
-		if err := os.WriteFile(unit+".service", fmt.Appendf(nil, serviceUnit, kind, self, path, quota, selectedProfile, environment), 0o600); err != nil {
+		unit := filepath.Join(unitDir(), p.unitName(kind))
+		if err := os.WriteFile(unit+".service", fmt.Appendf(nil, serviceUnit, kind, self, path, quota, p.name(), environment), 0o600); err != nil {
 			return err
 		}
 		if cal == "" {
-			_, _ = systemctl("disable", "--now", unitName(kind)+".timer") // fine if it was never enabled
+			_, _ = systemctl("disable", "--now", p.unitName(kind)+".timer") // fine if it was never enabled
 			os.Remove(unit + ".timer")
 			continue
 		}
@@ -120,7 +127,7 @@ func applySchedule(c Config) error {
 		return fmt.Errorf("systemctl --user daemon-reload: %s", strings.TrimSpace(string(out)))
 	}
 	for _, kind := range []string{"snapshot", "backup"} {
-		timer, want, verb := unitName(kind)+".timer", "active", "start"
+		timer, want, verb := p.unitName(kind)+".timer", "active", "start"
 		if c.job(kind).Every == "off" {
 			want, verb = "inactive", "stop"
 		} else if out, err := systemctl("enable", "--now", timer); err != nil {
@@ -136,9 +143,11 @@ func applySchedule(c Config) error {
 }
 
 // startJob kicks off a run in the background through its service.
-func startJob(kind string) error {
-	if out, err := systemctl("start", "--no-block", unitName(kind)+".service"); err != nil {
-		return fmt.Errorf("start %s: %s", unitName(kind), strings.TrimSpace(string(out)))
+func startJob(kind string) error { return cliProfile().startJob(kind) }
+
+func (p profileContext) startJob(kind string) error {
+	if out, err := systemctl("start", "--no-block", p.unitName(kind)+".service"); err != nil {
+		return fmt.Errorf("start %s: %s", p.unitName(kind), strings.TrimSpace(string(out)))
 	}
 	return nil
 }
@@ -158,8 +167,10 @@ type unitState struct {
 	Result  string // "ok", "partial", "failed", "" = never ran via systemd
 }
 
-func readUnits(kind string) (u unitState, ok bool) {
-	out, err := systemctl("show", "--timestamp=unix", unitName(kind)+".timer", unitName(kind)+".service",
+func readUnits(kind string) (unitState, bool) { return cliProfile().readUnits(kind) }
+
+func (p profileContext) readUnits(kind string) (u unitState, ok bool) {
+	out, err := systemctl("show", "--timestamp=unix", p.unitName(kind)+".timer", p.unitName(kind)+".service",
 		"-p", "NextElapseUSecRealtime", "-p", "ActiveState", "-p", "Result", "-p", "ExecMainStatus", "-p", "ExecMainExitTimestamp")
 	if err != nil {
 		return u, false

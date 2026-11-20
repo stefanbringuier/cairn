@@ -31,8 +31,12 @@ func uiRow(left, right string, width int) string {
 }
 
 func uiHeader(section, host string, width int) string {
+	return uiHeaderForProfile(section, host, width, cliProfile())
+}
+
+func uiHeaderForProfile(section, host string, width int, p profileContext) string {
 	brand := accent.Render(" ▰▰▰   cairn")
-	brand += dim.Render(" · " + selectedProfile)
+	brand += dim.Render(" · " + p.name())
 	if section != "" {
 		brand += dim.Render("  /  " + section)
 	}
@@ -71,12 +75,14 @@ func uiKeyPairs(scr screen) []string {
 		return []string{"y", "restore", "n", "cancel"}
 	case settings:
 		return []string{"← →", "frequency", "enter", "next / save", "esc", "cancel"}
+	case profilesScreen:
+		return []string{"↑ ↓ / j k", "choose", "enter", "open", "/", "filter", "esc", "clear / back", "r", "refresh", "?", "help"}
 	case storageList:
 		return []string{"enter", "setup guide", "/", "filter", "esc", "dashboard", "?", "help"}
 	case storageDetails, helpScreen:
 		return []string{"↑ ↓", "scroll", "esc", "back"}
 	default:
-		return []string{"s", "snapshot", "b", "backup", "r", "restore", "e", "settings", "t", "targets", "?", "help", "q", "quit"}
+		return []string{"s", "snapshot", "b", "backup", "r", "restore", "e", "settings", "t", "targets", "p", "profiles", "?", "help", "q", "quit"}
 	}
 }
 
@@ -84,7 +90,15 @@ func (m *model) resizeList() {
 	width := uiWidth(m.w)
 	m.list.Styles.Title = accent.MaxWidth(max(width-6, 1))
 	// Keep room for the header, border, wrapped keys and one status message.
-	m.list.SetSize(max(width-4, 1), max(m.h-10-lipgloss.Height(uiKeys(width, uiKeyPairs(m.scr)...)), 4))
+	height := m.h - 10 - lipgloss.Height(uiKeys(width, uiKeyPairs(m.scr)...))
+	if m.scr == dirList && m.undo != "" {
+		height -= lipgloss.Height(m.undoNotice(width))
+	}
+	m.list.SetSize(max(width-4, 1), max(height, 4))
+}
+
+func (m model) undoNotice(width int) string {
+	return dim.Render(ansi.Hardwrap(clean(m.undo), width, true))
 }
 
 func (m model) settingsHeight() int {
@@ -214,6 +228,9 @@ func renderDashboard(st Status, width, height int) string {
 	body := dashboardLayout(st, width, false)
 	if lipgloss.Height(body) > height {
 		body = dashboardLayout(st, width, true)
+	}
+	if lipgloss.Height(body) > height {
+		body = strings.ReplaceAll(body, "\n\n", "\n")
 	}
 	return body
 }

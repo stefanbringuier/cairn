@@ -333,3 +333,12 @@ The extended rebuild stages package/system reference files in a fresh
 `rebuild/run-*` directory. Old staged `/etc` files cannot supplement a chosen
 backup that contains only package manifests. The printed path identifies the
 new reference files; legacy no-new-flag rebuild remains unchanged.
+
+Interactive dashboard: press `p` for the read-only Profiles overview. Filter
+with `/` by displayed destination or name, and use Enter to open one profile.
+Escape clears the filter or returns. A successful switch is session-only.
+Confirm the displayed profile before settings, backup, browsing, or restore
+actions; never infer permission to operate on every listed profile. Resolve
+the target explicitly with `--profile NAME` when running a separate command,
+including any restore follow-up. `t` is destination setup, not the profile
+selector. An unavailable systemd user manager gives unknown timer state.

@@ -85,10 +85,10 @@ func (r Restic) backupRun(kind string, args []string, tty bool) (summary, []stri
 		case "status":
 			_ = os.WriteFile(progressFile(kind), line, 0o600) // best effort: only the TUI reads it
 			if tty {
-				var p progress
-				_ = json.Unmarshal(line, &p)
-				fmt.Fprintf(os.Stderr, "\r\033[K  %s %s", bar(p.Percent, 24), dim.Render(fmt.Sprintf("%s / %s  %d files  ~%s left",
-					humanize.IBytes(p.BytesDone), humanize.IBytes(p.TotalBytes), p.FilesDone, time.Duration(p.ETA)*time.Second)))
+				var prog progress
+				_ = json.Unmarshal(line, &prog)
+				fmt.Fprintf(os.Stderr, "\r\033[K  %s %s", bar(prog.Percent, 24), dim.Render(fmt.Sprintf("%s / %s  %d files  ~%s left",
+					humanize.IBytes(prog.BytesDone), humanize.IBytes(prog.TotalBytes), prog.FilesDone, time.Duration(prog.ETA)*time.Second)))
 			}
 		case "summary":
 			_ = json.Unmarshal(line, &sum)
@@ -243,10 +243,12 @@ func (s *Status) job(kind string) *JobStatus {
 
 // live refreshes the cheap parts (systemd state, progress file) without touching the repo.
 func (s *Status) live() {
+	p := profileContext(s.Profile)
+	s.Scheduler = true
 	for _, kind := range []string{"snapshot", "backup"} {
 		js := s.job(kind)
 		js.Next, js.Running, js.Percent = nil, false, 0
-		if u, ok := readUnits(kind); ok {
+		if u, ok := p.readUnits(kind); ok {
 			if !u.Next.IsZero() {
 				js.Next = &u.Next
 			}
@@ -254,17 +256,17 @@ func (s *Status) live() {
 		} else {
 			s.Scheduler = false
 		}
-		if fi, err := os.Stat(progressFile(kind)); err == nil && time.Since(fi.ModTime()) < 10*time.Second {
-			var p progress
-			b, _ := os.ReadFile(progressFile(kind))
-			_ = json.Unmarshal(b, &p)
-			js.Running, js.Percent = true, p.Percent
+		if fi, err := os.Stat(p.progressFile(kind)); err == nil && time.Since(fi.ModTime()) < 10*time.Second {
+			var prog progress
+			b, _ := os.ReadFile(p.progressFile(kind))
+			_ = json.Unmarshal(b, &prog)
+			js.Running, js.Percent = true, prog.Percent
 		}
 	}
 }
 
 func getStatus(c Config) Status {
-	st := Status{Profile: selectedProfile, BackupScope: c.backupScope(), Target: redact(c.Target), Host: c.Host, Scheduler: true}
+	st := Status{Profile: c.operationProfile().name(), BackupScope: c.backupScope(), Target: redact(c.Target), Host: c.Host, Scheduler: true}
 	var snaps []Snap
 	r, err := newRestic(c)
 	if err == nil {
